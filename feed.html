@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hooked — your cliffhanger feed</title>
+<style>
+  :root { --bg:#0a0a0c; --fg:#fff; --accent:#ff2d55; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  #feed { height:100dvh; overflow-y:scroll; scroll-snap-type:y mandatory; scrollbar-width:none; }
+  #feed::-webkit-scrollbar { display:none; }
+  .card { position:relative; height:100dvh; scroll-snap-align:start; scroll-snap-stop:always;
+    display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .stage { position:relative; width:100%; max-width:480px; height:100%; margin:0 auto;
+    background:#000; display:flex; align-items:center; justify-content:center; }
+  /* 16:9 player centered; we crop visually with the overlay gradients */
+  .player-wrap { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  .player-wrap iframe { width:100%; aspect-ratio:16/9; border:0; pointer-events:none; }
+  .grad-top { position:absolute; top:0; left:0; right:0; height:42%;
+    background:linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,0)); pointer-events:none; }
+  .grad-bot { position:absolute; bottom:0; left:0; right:0; height:48%;
+    background:linear-gradient(to top, rgba(0,0,0,.92), rgba(0,0,0,0)); pointer-events:none; }
+  .teaser { position:absolute; top:0; left:0; right:0; padding:54px 20px 0;
+    font-size:23px; font-weight:800; line-height:1.25; letter-spacing:-.01em;
+    text-shadow:0 2px 12px rgba(0,0,0,.6); }
+  .meta { position:absolute; left:20px; right:84px; bottom:34px; }
+  .chan { font-size:14px; font-weight:700; opacity:.95; }
+  .vtitle { font-size:13px; opacity:.8; margin-top:3px; line-height:1.3;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .badges { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+  .badge { font-size:11px; font-weight:700; padding:5px 9px; border-radius:999px;
+    background:rgba(255,255,255,.14); backdrop-filter:blur(6px); }
+  .rail { position:absolute; right:14px; bottom:40px; display:flex; flex-direction:column;
+    gap:18px; align-items:center; }
+  .rbtn { width:50px; height:50px; border-radius:50%; border:0; cursor:pointer;
+    background:rgba(255,255,255,.14); color:#fff; font-size:20px; display:flex;
+    align-items:center; justify-content:center; backdrop-filter:blur(6px); }
+  .rbtn small { font-size:10px; }
+  .watch { position:absolute; left:50%; transform:translateX(-50%); bottom:30px;
+    background:var(--accent); color:#fff; text-decoration:none; font-weight:800;
+    padding:13px 22px; border-radius:999px; font-size:15px; box-shadow:0 6px 24px rgba(255,45,85,.4);
+    display:none; }
+  .mute-hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,0,0,.55); padding:10px 16px; border-radius:999px; font-size:13px;
+    font-weight:700; pointer-events:none; opacity:0; transition:opacity .3s; }
+  .why { position:absolute; left:20px; right:20px; bottom:0; transform:translateY(100%);
+    background:rgba(20,20,24,.97); border-top:2px solid var(--accent); padding:18px 20px 26px;
+    border-radius:16px 16px 0 0; transition:transform .25s; font-size:14px; line-height:1.45; z-index:5; }
+  .why.open { transform:translateY(0); }
+  .why h4 { margin:0 0 8px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
+  .topbar { position:fixed; top:0; left:0; right:0; z-index:20; padding:14px 18px;
+    font-weight:900; font-size:16px; letter-spacing:-.02em; pointer-events:none;
+    text-shadow:0 1px 8px rgba(0,0,0,.7); }
+  .topbar span { color:var(--accent); }
+  .progress { position:fixed; top:0; left:0; height:3px; background:var(--accent); z-index:21; transition:width .2s; }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="topbar">Hooked<span>.</span> <span style="opacity:.6;font-weight:600;font-size:12px">your taste, cliffhung</span></div>
+<div id="feed"></div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+let CARDS = [];
+const players = {};       // id -> YT.Player
+let current = null;
+let muted = true;
+
+function fmt(s){ const m=Math.floor(s/60), x=s%60; return m+":"+String(x).padStart(2,"0"); }
+
+function cardHTML(c, i){
+  const dur = c.duration_min ? `${c.duration_min}m full video` : "long-form";
+  return `
+  <div class="card" data-id="${c.id}" data-idx="${i}">
+    <div class="stage">
+      <div class="player-wrap"><div id="yt-${c.id}"></div></div>
+      <div class="grad-top"></div><div class="grad-bot"></div>
+      <div class="teaser">${c.teaser_text}</div>
+      <div class="mute-hint" id="mh-${c.id}">🔇 tap to unmute</div>
+      <div class="meta">
+        <div class="chan">@${c.channel||"creator"}</div>
+        <div class="vtitle">${c.title}</div>
+        <div class="badges">
+          <span class="badge">⏱ ${c.span_seconds}s hook</span>
+          <span class="badge">${dur}</span>
+          <span class="badge">${c.start_mmss}–${c.end_mmss}</span>
+        </div>
+      </div>
+      <div class="rail">
+        <button class="rbtn" onclick="toggleMute('${c.id}')" id="mute-${c.id}">🔇</button>
+        <button class="rbtn" onclick="toggleWhy('${c.id}')">💡<small>why</small></button>
+        <button class="rbtn" onclick="rate('${c.id}',1)">👍</button>
+        <button class="rbtn" onclick="rate('${c.id}',-1)">👎</button>
+      </div>
+      <a class="watch" id="watch-${c.id}" href="${c.watch_full_url}" target="_blank" rel="noopener">Watch full ▶</a>
+      <div class="why" id="why-${c.id}">
+        <h4>Why this clip was chosen</h4>
+        <div>${c.why_it_works}</div>
+        <div style="margin-top:10px;opacity:.7;font-size:12.5px"><b>Video:</b> ${c.summary}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleWhy(id){ document.getElementById("why-"+id).classList.toggle("open"); }
+function rate(id,v){
+  const log = JSON.parse(localStorage.getItem("hooked_ratings")||"{}");
+  log[id]=v; localStorage.setItem("hooked_ratings", JSON.stringify(log));
+  const btnUp=event.currentTarget; btnUp.style.background = v>0 ? "var(--accent)" : "rgba(255,255,255,.14)";
+}
+function toggleMute(id){
+  muted = !muted;
+  Object.values(players).forEach(p=>{ try{ muted?p.mute():p.unMute(); }catch(e){} });
+  document.querySelectorAll(".rbtn[id^=mute-]").forEach(b=> b.textContent = muted?"🔇":"🔊");
+}
+
+function onYouTubeIframeAPIReady(){
+  fetch("out/feed.json").then(r=>r.json()).then(data=>{
+    CARDS = data;
+    document.getElementById("feed").innerHTML = data.map(cardHTML).join("");
+    data.forEach(c=>{
+      players[c.id] = new YT.Player("yt-"+c.id, {
+        videoId: c.video_id,
+        playerVars: {
+          start:c.start_seconds, end:c.end_seconds, autoplay:0, controls:0,
+          modestbranding:1, rel:0, playsinline:1, mute:1, fs:0, disablekb:1
+        },
+        events: {
+          onStateChange: e=>{
+            // loop the clip like a Short
+            if (e.data === YT.PlayerState.ENDED){
+              e.target.seekTo(c.start_seconds); e.target.playVideo();
+            }
+          }
+        }
+      });
+    });
+    setupObserver();
+  });
+}
+
+function setupObserver(){
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      const id = en.target.dataset.id;
+      const idx = +en.target.dataset.idx;
+      const p = players[id];
+      if (!p || !p.playVideo) return;
+      if (en.isIntersecting && en.intersectionRatio>0.6){
+        current=id;
+        document.getElementById("progress").style.width = ((idx+1)/CARDS.length*100)+"%";
+        try{ p.seekTo(CARDS[idx].start_seconds); muted?p.mute():p.unMute(); p.playVideo(); }catch(e){}
+        document.querySelectorAll(".watch").forEach(w=>w.style.display="none");
+        const w=document.getElementById("watch-"+id); if(w) w.style.display="block";
+        if (muted){ const mh=document.getElementById("mh-"+id); if(mh){mh.style.opacity=1; setTimeout(()=>mh.style.opacity=0,1600);} }
+      } else {
+        try{ p.pauseVideo(); }catch(e){}
+      }
+    });
+  }, {threshold:[0,0.6,1]});
+  document.querySelectorAll(".card").forEach(c=>io.observe(c));
+}
+</script>
+</body>
+</html>

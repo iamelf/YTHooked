@@ -1,0 +1,25 @@
+# secrets — never commit
+supabase/tmp.txt
+environment.env
+*.env
+.env
+.env.*
+**/.env
+**/.env.local
+webapp/.env.local
+
+# node
+webapp/node_modules/
+
+# python
+__pycache__/
+*.pyc
+
+# next.js build
+.next/
+webapp/.next/
+
+# personal data + generated artifacts (regenerable; may be sensitive)
+watch-history.json
+takeout-*.zip
+out/
