@@ -1,6 +1,8 @@
 # secrets — never commit
 supabase/tmp.txt
 environment.env
+client_secret*.json
+*.apps.googleusercontent.com.json
 *.env
 .env
 .env.*
