@@ -332,9 +332,18 @@ export default function BurrfeedApp() {
             <img src="/burrfeed-mark.svg" alt="" width={22} height={22} style={{ display: "block" }} />
             <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>Burrfeed</span>
           </div>
-          <button onClick={() => setTab("tune")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 999, background: ACCENT_SOFT, border: "1px solid oklch(0.76 0.13 293 / 0.4)", color: "oklch(0.84 0.1 293)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", backdropFilter: "blur(8px)" }}>
-            {ms("auto_awesome", { fontSize: 15, fontVariationSettings: "'FILL' 1" })}Tuned for you
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => setTab("tune")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 999, background: ACCENT_SOFT, border: "1px solid oklch(0.76 0.13 293 / 0.4)", color: "oklch(0.84 0.1 293)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", backdropFilter: "blur(8px)" }}>
+              {ms("auto_awesome", { fontSize: 15, fontVariationSettings: "'FILL' 1" })}Tuned for you
+            </button>
+            {user ? (
+              <button onClick={() => setTab("you")} title="Account" style={{ width: 32, height: 32, borderRadius: "50%", flex: "0 0 auto", border: "1px solid oklch(1 0 0 / 0.25)", background: "linear-gradient(135deg, oklch(0.6 0.07 293), oklch(0.34 0.03 60))", color: TXT, fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{(user.email?.[0] || "•").toUpperCase()}</button>
+            ) : (
+              <button onClick={() => signInWithGoogle()} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 999, background: ACCENT, border: "none", color: "oklch(0.2 0.03 65)", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", boxShadow: "0 4px 14px oklch(0.6 0.13 293 / 0.4)" }}>
+                {ms("login", { fontSize: 15 })}Sign in
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 7, marginTop: 13, pointerEvents: "auto" }}>
           {(["all", "video", "paper", "news"] as const).map((f) => {
