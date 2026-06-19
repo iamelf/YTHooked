@@ -1,5 +1,10 @@
 # Deploying Hooked
 
+**Live:** https://webapp-one-gamma-17.vercel.app (Vercel project
+`iamelfs-projects/webapp`, deployed via `vercel --prod` from `webapp/`).
+The app loads and anonymous feed reads work today; **sign-in needs the Google
+OAuth steps in §1 below** before "Connect" will complete.
+
 The web app lives in `webapp/` (Next.js 14 App Router). Three things have to be
 wired before your husband can open it on his phone: **Google sign-in**, **env
 vars**, and **the Vercel deploy** itself.
@@ -27,9 +32,9 @@ scope, so the session carries a `provider_token` we use to push the watchlist.
 paste the Client ID + secret, save.
 
 **c. Supabase** → Authentication → URL Configuration:
-- **Site URL**: your Vercel URL (e.g. `https://hooked.vercel.app`)
-- **Redirect URLs**: add both the Vercel URL and `http://localhost:3000` for
-  local dev.
+- **Site URL**: `https://webapp-one-gamma-17.vercel.app`
+- **Redirect URLs**: add `https://webapp-one-gamma-17.vercel.app/**` and
+  `http://localhost:3000/**` for local dev.
 
 The app already requests the right scope (`lib/account.ts` →
 `signInWithGoogle`), so no code change is needed here.
@@ -57,16 +62,19 @@ shared. RLS does the enforcement — no code change.
 
 ---
 
-## 4. Vercel
+## 4. Vercel — already deployed
 
-1. Push to GitHub (already at github.com/iamelf/YTHooked).
-2. Vercel → **New Project** → import the repo → set **Root Directory** to
-   `webapp`.
-3. Add the three env vars from §2 (Production + Preview).
-4. Deploy. Copy the production URL back into Supabase **Site URL / Redirect
-   URLs** (§1c) and Google's redirect (already the Supabase callback, so no
-   change).
-5. Open the URL on his phone → "Connect" → Google → done.
+The project is linked and live (see top of file). The two `NEXT_PUBLIC_…`
+Supabase vars are already set in Production. To add the Claude key (otherwise
+Tune uses the keyword fallback), run it through *your* terminal so the secret
+never lands in chat:
 
-CLI alternative: `cd webapp && vercel --prod` (set env vars with
-`vercel env add` first).
+```
+cd webapp
+! vercel env add ANTHROPIC_API_KEY production   # paste the key when prompted
+vercel --prod --yes                              # redeploy to pick it up
+```
+
+Re-deploy any time with `cd webapp && vercel --prod --yes`. To wire GitHub
+auto-deploy instead, connect the repo under the Vercel project's **Settings →
+Git** (root directory `webapp`).
