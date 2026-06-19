@@ -1,7 +1,9 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFeed, type Card } from "@/lib/useFeed";
-import { recordReaction, toggleWatchlist } from "@/lib/feed";
+import { recordReaction, toggleWatchlist, setWatched } from "@/lib/feed";
+import { supabase } from "@/lib/supabase";
+import { signInWithGoogle, signOut, loadProfile, saveProfile, loadReactionState } from "@/lib/account";
 
 /* ── design tokens (from Hooked.dc.html) ───────────────────────────────── */
 const ACCENT = "oklch(0.76 0.13 293)";
@@ -59,7 +61,9 @@ export default function HookedApp() {
   const [tab, setTab] = useState<Tab>("feed");
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [muted, setMuted] = useState(true);
-  const [yt, setYt] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [providerToken, setProviderToken] = useState<string | null>(null);
+  const yt = !!user; // signed in with Google (YouTube scope) === "connected"
   const [sourceFilter, setSourceFilter] = useState<"all" | "video" | "paper" | "news">("all");
   const [credFloor, setCredFloor] = useState(false);
   const [boosted, setBoosted] = useState<string[]>([]);
@@ -79,6 +83,34 @@ export default function HookedApp() {
   const setCS = (id: string, patch: CState) => setCstate((s) => ({ ...s, [id]: { ...(s[id] || {}), ...patch } }));
   const showToast = (m: string) => { setToast(m); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(null), 1900); };
   const pulse = () => { setFeedUpdated(true); clearTimeout(updT.current); updT.current = setTimeout(() => setFeedUpdated(false), 2400); };
+
+  // ── auth session ──
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      if (data.session?.provider_token) setProviderToken(data.session.provider_token);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+      if (session?.provider_token) setProviderToken(session.provider_token);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // ── hydrate persisted taste + reactions once signed in and feed is loaded ──
+  useEffect(() => {
+    if (!user || !allCards.length) return;
+    (async () => {
+      const [prof, rx] = await Promise.all([loadProfile(), loadReactionState()]);
+      if (prof) { setBoosted(prof.boosted || []); setMutedTopics(prof.muted || []); setCredFloor(prof.novelty_floor === "expert"); }
+      const next: Record<string, CState> = {};
+      allCards.forEach((c) => {
+        const st = { liked: rx.liked.has(c.dbId), saved: rx.saved.has(c.dbId), watched: rx.watched.has(c.dbId) };
+        if (st.liked || st.saved || st.watched) next[c.id] = st;
+      });
+      setCstate(next);
+    })();
+  }, [user, allCards]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* scoring + filtering */
   const scoreCard = (c: Card) => {
@@ -102,14 +134,42 @@ export default function HookedApp() {
   const savedCards = allCards.filter((c) => cs(c.id).saved);
   const savedMin = savedCards.reduce((a, c) => a + c.runtime, 0);
 
-  /* actions */
-  const like = (id: string) => { const n = !cs(id).liked; setCS(id, { liked: n }); recordReaction(id, n ? "up" : "down").catch(() => {}); };
-  const save = (id: string) => { const n = !cs(id).saved; setCS(id, { saved: n }); toggleWatchlist(id, n).catch(() => {}); showToast(n ? "Saved to Watchlist" : "Removed from Watchlist"); };
-  const watchFull = (c: Card) => { setCS(c.id, {}); recordReaction(c.id, "watch_full").catch(() => {}); window.open(c.source_url, "_blank"); showToast(c.hook ? "Opening at hook · " + c.hook : "Opening source…"); };
+  /* actions — UI state keyed by external_id (c.id); persistence by feed_items.id (c.dbId) */
+  const like = (c: Card) => { const n = !cs(c.id).liked; setCS(c.id, { liked: n }); recordReaction(c.dbId, n ? "up" : "down").catch(() => {}); };
+  const save = (c: Card) => { const n = !cs(c.id).saved; setCS(c.id, { saved: n }); toggleWatchlist(c.dbId, n).catch(() => {}); showToast(n ? "Saved to Watchlist" : "Removed from Watchlist"); };
+  const watchFull = (c: Card) => { recordReaction(c.dbId, "watch_full").catch(() => {}); window.open(c.source_url, "_blank"); showToast(c.hook ? "Opening at hook · " + c.hook : "Opening source…"); };
+
+  const [pushing, setPushing] = useState(false);
+  const pushYouTube = async () => {
+    if (pushing) return;
+    if (!providerToken) { signInWithGoogle(); return; } // re-grant scope to get a fresh token
+    const videoIds = savedCards.map((c) => c.videoId).filter(Boolean);
+    if (!videoIds.length) { showToast("No YouTube videos to push"); return; }
+    setPushing(true);
+    try {
+      const res = await fetch("/api/watchlist/push-youtube", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerToken, videoIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "push failed");
+      setSendSuccess(true);
+      showToast(`Pushed ${data.added} to “Hooked Watchlist”`);
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      showToast(msg.includes("token") || msg.includes("401") ? "Reconnect YouTube to push" : "Push failed — try again");
+    } finally {
+      setPushing(false);
+    }
+  };
 
   /* tune */
-  const submitTune = () => {
-    const raw = tuneInput.trim(); if (!raw) return;
+  const [tuning, setTuning] = useState(false);
+  const persistTaste = (nb: string[], nm: string[], cf: boolean) =>
+    saveProfile({ boosted: nb, muted: nm, novelty_floor: cf ? "expert" : "any" }).catch(() => {});
+
+  // offline fallback: local keyword matcher (also used if the API call fails)
+  const applyTuneLocal = (raw: string) => {
     const text = raw.toLowerCase();
     const cues = ["less ", "already know", "i know", "skip ", "mute ", "not ", "no more", "enough ", " less"];
     let cut = text.length; cues.forEach((c) => { const i = text.indexOf(c); if (i >= 0 && i < cut) cut = i; });
@@ -120,13 +180,40 @@ export default function HookedApp() {
       if (d.kw.some((k) => boostPart.includes(k))) { if (!nb.includes(d.chip)) nb.push(d.chip); nm = nm.filter((x) => x !== d.chip); newB.push(d.chip); }
       if (d.kw.some((k) => mutePart.includes(k))) { if (!nm.includes(d.chip)) nm.push(d.chip); nb = nb.filter((x) => x !== d.chip); newM.push(d.chip); }
     });
-    if (/primary source|expert|credible|only experts/.test(text)) setCredFloor(true);
-    setBoosted(nb); setMutedTopics(nm); setTuneInput("");
+    const cf = /primary source|expert|credible|only experts/.test(text) ? true : credFloor;
+    setBoosted(nb); setMutedTopics(nm); setCredFloor(cf);
     setTuneLog({ boost: newB.length ? newB : nb.slice(0, 3), mute: newM.length ? newM : nm.slice(0, 3) });
+    persistTaste(nb, nm, cf);
     pulse();
   };
 
-  const completeOnboarding = () => { setShowOnboarding(false); setTab("feed"); setBoosted([...obPick]); setMutedTopics([...obKnow]); };
+  const submitTune = async () => {
+    const raw = tuneInput.trim(); if (!raw || tuning) return;
+    setTuneInput(""); setTuning(true);
+    try {
+      const res = await fetch("/api/tune-feed", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: raw, boosted, muted: mutedTopics }),
+      });
+      if (!res.ok) throw new Error("tune api");
+      const data = await res.json() as { boost?: string[]; mute?: string[]; credibility_floor?: string };
+      let nb = [...boosted], nm = [...mutedTopics];
+      (data.boost ?? []).forEach((b) => { if (!nb.includes(b)) nb.push(b); nm = nm.filter((x) => x !== b); });
+      (data.mute ?? []).forEach((m) => { if (!nm.includes(m)) nm.push(m); nb = nb.filter((x) => x !== m); });
+      let cf = credFloor;
+      if (data.credibility_floor === "on") cf = true; else if (data.credibility_floor === "off") cf = false;
+      setBoosted(nb); setMutedTopics(nm); setCredFloor(cf);
+      setTuneLog({ boost: data.boost?.length ? data.boost! : nb.slice(0, 3), mute: data.mute?.length ? data.mute! : nm.slice(0, 3) });
+      persistTaste(nb, nm, cf);
+      pulse();
+    } catch {
+      applyTuneLocal(raw); // graceful offline fallback
+    } finally {
+      setTuning(false);
+    }
+  };
+
+  const completeOnboarding = () => { setShowOnboarding(false); setTab("feed"); setBoosted([...obPick]); setMutedTopics([...obKnow]); persistTaste([...obPick], [...obKnow], credFloor); };
 
   /* feed playback: remember position, advance on explicit action only */
   const scroller = useRef<HTMLDivElement>(null);
@@ -134,8 +221,13 @@ export default function HookedApp() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [progress, setProgress] = useState(0);   // 0..1 of active video
+  const [buffering, setBuffering] = useState(false);
+  const [burstKey, setBurstKey] = useState(0);    // double-tap heart
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
+  const lastTap = useRef(0);
+  const tapTimer = useRef<any>(null);
 
   // observer: switch the active card ONLY when a different card dominates the viewport
   useEffect(() => {
@@ -154,10 +246,22 @@ export default function HookedApp() {
   // active card changed: pause the rest, clear the end-screen, start the new one (from 0 only if fresh)
   useEffect(() => {
     Object.entries(vids.current).forEach(([id, v]) => { if (v && id !== activeId) v.pause(); });
-    setPaused(false); setEnded(false);
+    setPaused(false); setEnded(false); setProgress(0); setBuffering(false);
     const v = activeId ? vids.current[activeId] : null;
     if (v && tab === "feed" && !showOnboarding) { v.muted = muted; v.play().catch(() => {}); }
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // pause when the browser tab/window is hidden; resume on return
+  useEffect(() => {
+    const onVis = () => {
+      const v = activeRef.current ? vids.current[activeRef.current] : null;
+      if (!v) return;
+      if (document.hidden) v.pause();
+      else if (tab === "feed" && !showOnboarding && !paused && !ended) v.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [tab, showOnboarding, paused, ended]);
 
   // leaving the feed pauses; returning resumes exactly where you were
   useEffect(() => {
@@ -174,6 +278,19 @@ export default function HookedApp() {
     const v = vids.current[id]; if (!v) return;
     if (v.paused) { v.play().catch(() => {}); setPaused(false); } else { v.pause(); setPaused(true); }
   };
+  const onMediaTap = (c: Card) => {
+    const now = Date.now();
+    if (now - lastTap.current < 280) {            // double-tap → like
+      clearTimeout(tapTimer.current);
+      lastTap.current = 0;
+      if (!cs(c.id).liked) like(c);
+      setBurstKey((k) => k + 1);
+    } else {                                       // single-tap → pause/play (deferred to detect double)
+      lastTap.current = now;
+      clearTimeout(tapTimer.current);
+      tapTimer.current = setTimeout(() => tapVideo(c.id), 280);
+    }
+  };
   const replay = () => { const v = activeId ? vids.current[activeId] : null; if (!v) return; v.currentTime = 0; setEnded(false); setPaused(false); v.play().catch(() => {}); };
   const nextCard = () => {
     const el = activeId ? (document.querySelector(`[data-cid="${activeId}"]`) as HTMLElement) : null;
@@ -184,7 +301,7 @@ export default function HookedApp() {
 
   /* ── shared bits ── */
   const credToggle = (
-    <button onClick={() => setCredFloor((v) => !v)} style={{ position: "relative", width: 44, height: 25, borderRadius: 999, border: "none", cursor: "pointer", background: credFloor ? ACCENT : "oklch(1 0 0 / 0.14)", transition: "background .2s", flex: "0 0 auto" }}>
+    <button onClick={() => { const v = !credFloor; setCredFloor(v); persistTaste(boosted, mutedTopics, v); pulse(); }} style={{ position: "relative", width: 44, height: 25, borderRadius: 999, border: "none", cursor: "pointer", background: credFloor ? ACCENT : "oklch(1 0 0 / 0.14)", transition: "background .2s", flex: "0 0 auto" }}>
       <span style={{ position: "absolute", top: 3, left: credFloor ? 22 : 3, width: 19, height: 19, borderRadius: "50%", background: "oklch(0.99 0 0)", transition: "left .2s", boxShadow: "0 1px 3px oklch(0 0 0 / 0.4)" }} />
     </button>
   );
@@ -193,7 +310,7 @@ export default function HookedApp() {
   const renderFeed = () => (
     <div style={{ position: "absolute", inset: 0, background: "oklch(0.13 0.01 60)" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 30, background: "oklch(1 0 0 / 0.1)" }}>
-        <div style={{ height: "100%", background: ACCENT, animation: "play 8s linear infinite", width: "30%" }} />
+        <div style={{ height: "100%", background: ACCENT, width: `${Math.round(progress * 100)}%`, transition: "width .15s linear" }} />
       </div>
       {/* top overlay */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 25, padding: "16px 14px 26px", background: "linear-gradient(oklch(0.1 0.01 55 / 0.82), transparent)", pointerEvents: "none" }}>
@@ -231,10 +348,14 @@ export default function HookedApp() {
             <section key={c.id} data-cid={c.id} style={{ position: "relative", height: "100%", width: "100%", flex: "0 0 100%", scrollSnapAlign: "start", scrollSnapStop: "always", overflow: "hidden" }}>
               {/* media */}
               {c.type === "video" ? (
-                <div onClick={() => tapVideo(c.id)} style={{ position: "absolute", inset: 0, background: "oklch(0.1 0.01 55)", overflow: "hidden", cursor: "pointer" }}>
+                <div onClick={() => onMediaTap(c)} style={{ position: "absolute", inset: 0, background: "oklch(0.1 0.01 55)", overflow: "hidden", cursor: "pointer" }}>
                   {c.teaser_url ? (
-                    <video ref={(el) => { vids.current[c.id] = el; }} src={c.teaser_url} poster={c.thumb_url || undefined} muted={muted} playsInline
+                    <video ref={(el) => { vids.current[c.id] = el; }} src={c.teaser_url} poster={c.thumb_url || undefined} muted={muted} playsInline preload="metadata"
                       onEnded={() => { if (c.id === activeRef.current) setEnded(true); }}
+                      onTimeUpdate={(e) => { if (c.id === activeRef.current) { const v = e.currentTarget; setProgress(v.duration ? v.currentTime / v.duration : 0); } }}
+                      onWaiting={() => { if (c.id === activeRef.current) setBuffering(true); }}
+                      onPlaying={() => { if (c.id === activeRef.current) setBuffering(false); }}
+                      onCanPlay={() => { if (c.id === activeRef.current) setBuffering(false); }}
                       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : <div style={{ position: "absolute", inset: 0, background: "linear-gradient(158deg, oklch(0.28 0.045 72), oklch(0.17 0.022 60) 56%, oklch(0.13 0.015 50))" }} />}
                   <div style={{ position: "absolute", top: 88, left: 18, fontFamily: "'JetBrains Mono'", fontSize: 10.5, letterSpacing: "0.07em", color: "oklch(0.82 0.02 75 / 0.85)", textTransform: "uppercase", textShadow: "0 1px 6px oklch(0 0 0 / 0.7)" }}>AI teaser{c.hook ? " · hook " + c.hook : ""}</div>
@@ -270,12 +391,12 @@ export default function HookedApp() {
               </div>
               {/* right rail */}
               <div style={{ position: "absolute", right: 14, bottom: 104, zIndex: 9, display: "flex", flexDirection: "column", gap: 15, alignItems: "center" }}>
-                <RailBtn onClick={() => like(c.id)} label={likes}>{ms("favorite", { fontSize: 33, color: liked ? ACCENT : "oklch(0.95 0.008 75)", fontVariationSettings: liked ? "'FILL' 1" : "'FILL' 0", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.55))" })}</RailBtn>
-                <button onClick={() => save(c.id)} style={railBtnStyle}>
-                  <span style={{ width: 54, height: 54, borderRadius: "50%", background: saved ? "oklch(0.76 0.13 293 / 0.18)" : ACCENT, border: `1.5px solid ${saved ? ACCENT : "transparent"}`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 18px oklch(0.5 0.13 293 / 0.4)" }}>
-                    {ms(saved ? "bookmark_added" : "bookmark", { fontSize: 27, color: saved ? "oklch(0.82 0.12 293)" : "oklch(0.2 0.03 65)", fontVariationSettings: saved ? "'FILL' 1" : "'FILL' 0" })}
+                <RailBtn onClick={() => like(c)} label={likes}>{ms("favorite", { fontSize: 33, color: liked ? ACCENT : "oklch(0.95 0.008 75)", fontVariationSettings: liked ? "'FILL' 1" : "'FILL' 0", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.55))" })}</RailBtn>
+                <button onClick={() => save(c)} style={railBtnStyle}>
+                  <span style={{ width: 54, height: 54, borderRadius: "50%", background: saved ? ACCENT : "oklch(1 0 0 / 0.1)", border: `1px solid ${saved ? ACCENT : "oklch(1 0 0 / 0.22)"}`, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(6px)", boxShadow: saved ? "0 6px 18px oklch(0.5 0.13 293 / 0.45)" : "none", transition: "all .15s" }}>
+                    {ms(saved ? "bookmark_added" : "bookmark", { fontSize: 27, color: saved ? "oklch(0.2 0.03 65)" : "oklch(0.96 0.008 75)", fontVariationSettings: saved ? "'FILL' 1" : "'FILL' 0" })}
                   </span>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "oklch(0.96 0.008 75)" }}>{saved ? "Saved" : "Save"}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: saved ? "oklch(0.84 0.1 293)" : "oklch(0.96 0.008 75)" }}>{saved ? "Saved" : "Save"}</span>
                 </button>
                 <button onClick={() => watchFull(c)} style={railBtnStyle}>
                   <span style={{ width: 46, height: 46, borderRadius: "50%", background: "oklch(1 0 0 / 0.1)", border: "1px solid oklch(1 0 0 / 0.22)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}>{ms("play_arrow", { fontSize: 23, color: "oklch(0.96 0.008 75)", fontVariationSettings: "'FILL' 1" })}</span>
@@ -289,6 +410,16 @@ export default function HookedApp() {
                 <div onClick={() => tapVideo(c.id)} style={{ position: "absolute", inset: 0, zIndex: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ width: 76, height: 76, borderRadius: "50%", background: "oklch(0.1 0.01 50 / 0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid oklch(1 0 0 / 0.18)" }}>{ms("play_arrow", { fontSize: 42, color: "oklch(0.98 0.008 75)", fontVariationSettings: "'FILL' 1" })}</span>
                 </div>
+              )}
+              {/* buffering */}
+              {c.id === activeId && buffering && !ended && !paused && (
+                <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                  <span style={{ width: 44, height: 44, borderRadius: "50%", border: "3px solid oklch(1 0 0 / 0.2)", borderTopColor: "oklch(0.95 0.008 75)", animation: "spin 0.8s linear infinite" }} />
+                </div>
+              )}
+              {/* double-tap heart */}
+              {c.id === activeId && burstKey > 0 && (
+                <span key={burstKey} className="ms" style={{ position: "absolute", top: "50%", left: "50%", zIndex: 11, fontSize: 120, color: ACCENT, fontVariationSettings: "'FILL' 1", pointerEvents: "none", animation: "heartburst .7s ease-out forwards", filter: "drop-shadow(0 4px 16px oklch(0 0 0 / 0.5))" }}>favorite</span>
               )}
               {/* completion layer: Replay / Next (Save + Watch full stay on the rail) */}
               {c.id === activeId && ended && (
@@ -350,7 +481,7 @@ export default function HookedApp() {
           {boosted.map((b) => (
             <div key={b} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 9px 8px 13px", borderRadius: 999, background: ACCENT_SOFT, border: "1px solid oklch(0.76 0.13 293 / 0.45)" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "oklch(0.81 0.1 293)" }}>{b}</span>
-              <button onClick={() => { setBoosted((s) => s.filter((x) => x !== b)); pulse(); }} style={iconBtn}>{ms("close", { fontSize: 17, color: "oklch(0.7 0.08 293)" })}</button>
+              <button onClick={() => { const nb = boosted.filter((x) => x !== b); setBoosted(nb); persistTaste(nb, mutedTopics, credFloor); pulse(); }} style={iconBtn}>{ms("close", { fontSize: 17, color: "oklch(0.7 0.08 293)" })}</button>
             </div>
           ))}
         </div>
@@ -360,7 +491,7 @@ export default function HookedApp() {
           {mutedTopics.map((m) => (
             <div key={m} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 9px 8px 13px", borderRadius: 999, background: "oklch(1 0 0 / 0.04)", border: "1px solid oklch(1 0 0 / 0.12)" }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: MUTE, textDecoration: "line-through" }}>{m}</span>
-              <button onClick={() => { setMutedTopics((s) => s.filter((x) => x !== m)); pulse(); }} style={iconBtn}>{ms("close", { fontSize: 17, color: "oklch(0.55 0.012 75)" })}</button>
+              <button onClick={() => { const nm = mutedTopics.filter((x) => x !== m); setMutedTopics(nm); persistTaste(boosted, nm, credFloor); pulse(); }} style={iconBtn}>{ms("close", { fontSize: 17, color: "oklch(0.55 0.012 75)" })}</button>
             </div>
           ))}
         </div>
@@ -414,13 +545,13 @@ export default function HookedApp() {
                 sendSuccess ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px", borderRadius: 12, background: "oklch(0.78 0.12 150 / 0.14)", border: "1px solid oklch(0.78 0.12 150 / 0.35)" }}>{ms("check_circle", { fontSize: 21, color: "oklch(0.82 0.12 150)", fontVariationSettings: "'FILL' 1" })}<div style={{ fontSize: 13, color: "oklch(0.86 0.06 150)" }}>Pushed to <b>&ldquo;Hooked Watchlist&rdquo;</b> · opens in YouTube</div></div>
                 ) : (
-                  <button onClick={() => { setSendSuccess(true); showToast("Pushed to “Hooked Watchlist”"); }} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 13, borderRadius: 13, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 14, fontFamily: "inherit", cursor: "pointer" }}>{ms("playlist_add", { fontSize: 19 })}Send {savedCards.length} to YouTube</button>
+                  <button onClick={pushYouTube} disabled={pushing} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 13, borderRadius: 13, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 14, fontFamily: "inherit", cursor: pushing ? "default" : "pointer", opacity: pushing ? 0.7 : 1 }}>{ms("playlist_add", { fontSize: 19 })}{pushing ? "Pushing…" : `Send ${savedCards.length} to YouTube`}</button>
                 )
               ) : (
                 <>
                   <div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginBottom: 12, lineHeight: 1.45 }}>Connect to push saves into a &ldquo;Hooked Watchlist&rdquo; playlist.</div>
                   <div style={{ display: "flex", gap: 9 }}>
-                    <button onClick={() => { setYt(true); showToast("YouTube connected"); }} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 12, borderRadius: 12, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 13.5, fontFamily: "inherit", cursor: "pointer" }}>{ms("link", { fontSize: 18 })}Connect</button>
+                    <button onClick={() => signInWithGoogle()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 12, borderRadius: 12, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 13.5, fontFamily: "inherit", cursor: "pointer" }}>{ms("link", { fontSize: 18 })}Connect</button>
                     <button onClick={() => showToast("Links copied to clipboard")} style={{ padding: "12px 15px", borderRadius: 12, border: "1px solid oklch(1 0 0 / 0.14)", background: "oklch(1 0 0 / 0.04)", color: "oklch(0.88 0.008 75)", fontWeight: 600, fontSize: 13.5, fontFamily: "inherit", cursor: "pointer" }}>Copy links</button>
                   </div>
                 </>
@@ -440,8 +571,8 @@ export default function HookedApp() {
                       <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: MUTE, fontFamily: "'JetBrains Mono'" }}>{ms("schedule", { fontSize: 13 })}{c.runtime} min<span>· {c.source}</span></div>
                       <div style={{ fontSize: 12, color: "oklch(0.78 0.04 75)", marginTop: 2, fontStyle: "italic" }}>&ldquo;{c.whySaved}&rdquo;</div>
                       <div style={{ display: "flex", gap: 8, marginTop: 7 }}>
-                        <button onClick={() => setCS(c.id, { watched: !watched })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 9, border: "1px solid oklch(1 0 0 / 0.12)", background: "oklch(1 0 0 / 0.04)", color: watched ? POS : MUTE, fontWeight: 600, fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>{ms(watched ? "check_circle" : "radio_button_unchecked", { fontSize: 15, fontVariationSettings: "'FILL' 1" })}Watched</button>
-                        <button onClick={() => setCS(c.id, { saved: false })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 9, border: "1px solid oklch(1 0 0 / 0.12)", background: "oklch(1 0 0 / 0.04)", color: MUTE, fontWeight: 600, fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>{ms("delete", { fontSize: 15 })}Remove</button>
+                        <button onClick={() => { const w = !watched; setCS(c.id, { watched: w }); setWatched(c.dbId, w).catch(() => {}); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 9, border: "1px solid oklch(1 0 0 / 0.12)", background: "oklch(1 0 0 / 0.04)", color: watched ? POS : MUTE, fontWeight: 600, fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>{ms(watched ? "check_circle" : "radio_button_unchecked", { fontSize: 15, fontVariationSettings: "'FILL' 1" })}Watched</button>
+                        <button onClick={() => { setCS(c.id, { saved: false }); toggleWatchlist(c.dbId, false).catch(() => {}); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 9, border: "1px solid oklch(1 0 0 / 0.12)", background: "oklch(1 0 0 / 0.04)", color: MUTE, fontWeight: 600, fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>{ms("delete", { fontSize: 15 })}Remove</button>
                       </div>
                     </div>
                   </div>
@@ -467,7 +598,7 @@ export default function HookedApp() {
           {ms("smart_display", { fontSize: 26, color: yt ? DANGER : MUTE, fontVariationSettings: "'FILL' 1" })}
           <div><div style={{ fontSize: 14.5, fontWeight: 700 }}>YouTube</div><div style={{ fontSize: 12.5, color: yt ? POS : "oklch(0.6 0.012 75)", marginTop: 2 }}>{yt ? "Connected · hooked@aws" : "Not connected"}</div></div>
         </div>
-        <button onClick={() => setYt((v) => !v)} style={yt ? { padding: "9px 14px", borderRadius: 11, border: "1px solid oklch(1 0 0 / 0.14)", background: "oklch(1 0 0 / 0.04)", color: MUTE, fontWeight: 600, fontSize: 13, fontFamily: "inherit", cursor: "pointer" } : { padding: "9px 14px", borderRadius: 11, border: "1px solid oklch(0.76 0.13 293 / 0.5)", background: ACCENT_SOFT, color: "oklch(0.81 0.1 293)", fontWeight: 700, fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>{yt ? "Disconnect" : "Connect"}</button>
+        <button onClick={() => (yt ? signOut() : signInWithGoogle())} style={yt ? { padding: "9px 14px", borderRadius: 11, border: "1px solid oklch(1 0 0 / 0.14)", background: "oklch(1 0 0 / 0.04)", color: MUTE, fontWeight: 600, fontSize: 13, fontFamily: "inherit", cursor: "pointer" } : { padding: "9px 14px", borderRadius: 11, border: "1px solid oklch(0.76 0.13 293 / 0.5)", background: ACCENT_SOFT, color: "oklch(0.81 0.1 293)", fontWeight: 700, fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>{yt ? "Disconnect" : "Connect"}</button>
       </div>
       <div style={{ marginTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: 16, borderRadius: 16, background: CARDBG, border: `1px solid ${HAIR}` }}>
         <div><div style={{ fontSize: 14.5, fontWeight: 700 }}>Credibility floor</div><div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginTop: 2 }}>Only experts &amp; primary sources</div></div>
@@ -493,7 +624,7 @@ export default function HookedApp() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>{ms("smart_display", { fontSize: 30, color: DANGER, fontVariationSettings: "'FILL' 1" })}<div><div style={{ fontSize: 15, fontWeight: 700 }}>Connect YouTube</div><div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginTop: 2 }}>Push your watchlist to a playlist</div></div></div>
             {yt ? <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 11, background: "oklch(0.78 0.12 150 / 0.16)", color: "oklch(0.82 0.12 150)", fontWeight: 700, fontSize: 13 }}>{ms("check_circle", { fontSize: 17, fontVariationSettings: "'FILL' 1" })}Connected</div>
-              : <button onClick={() => { setYt(true); showToast("YouTube connected"); }} style={{ padding: "9px 15px", borderRadius: 11, border: "1px solid oklch(0.76 0.13 293 / 0.5)", background: ACCENT_SOFT, color: "oklch(0.81 0.1 293)", fontWeight: 700, fontSize: 13, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>Connect</button>}
+              : <button onClick={() => signInWithGoogle()} style={{ padding: "9px 15px", borderRadius: 11, border: "1px solid oklch(0.76 0.13 293 / 0.5)", background: ACCENT_SOFT, color: "oklch(0.81 0.1 293)", fontWeight: 700, fontSize: 13, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>Connect</button>}
           </div>
         </div>
         <div style={{ marginTop: 28 }}>

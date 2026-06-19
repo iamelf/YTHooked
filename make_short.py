@@ -202,7 +202,8 @@ def _gemini_tts(text, out_wav, voice_name):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         sys.exit("GEMINI_API_KEY not set (needed for --tts gemini)")
-    model = "gemini-2.5-flash-preview-tts"
+    # flash-tts and pro-tts have SEPARATE daily quota buckets; switch via env.
+    model = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
     body = json.dumps({
         "contents": [{"parts": [{"text": text}]}],
@@ -527,7 +528,8 @@ def main():
 
         print(f"[outro] narrator...")
         outro = tmp / "outro.mp4"
-        NARR(spec["outro_vo"], spec["outro_text"], outro, "outro", cta=spec.get("outro_cta"))
+        # No baked-in CTA button — "Watch full" is a real, clickable control in the app.
+        NARR(spec["outro_vo"], spec["outro_text"], outro, "outro")
         pieces.append(outro)
 
         print(f"[concat] {len(pieces)} pieces...")

@@ -39,6 +39,17 @@ export async function toggleWatchlist(itemId: string, on: boolean) {
   }
 }
 
+/** Mark a saved item watched / unwatched (no-op if it isn't on the watchlist). */
+export async function setWatched(itemId: string, watched: boolean) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { error } = await supabase
+    .from("watchlist")
+    .update({ status: watched ? "watched" : "saved" })
+    .match({ user_id: user.id, item_id: itemId });
+  if (error) throw error;
+}
+
 /** The saved watchlist, hydrated with each item's full FeedItem. */
 export async function fetchWatchlist(): Promise<FeedItem[]> {
   const { data, error } = await supabase
