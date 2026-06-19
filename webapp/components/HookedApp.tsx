@@ -76,6 +76,8 @@ export default function HookedApp() {
   const [tuneInput, setTuneInput] = useState("");
   const [obPick, setObPick] = useState<string[]>([]);
   const [obKnow, setObKnow] = useState<string[]>([]);
+  const [obInput, setObInput] = useState("");
+  const [obAdded, setObAdded] = useState<string[]>([]);
   const toastT = useRef<any>(null);
   const updT = useRef<any>(null);
 
@@ -214,6 +216,17 @@ export default function HookedApp() {
   };
 
   const completeOnboarding = () => { setShowOnboarding(false); setTab("feed"); setBoosted([...obPick]); setMutedTopics([...obKnow]); persistTaste([...obPick], [...obKnow], credFloor); };
+
+  // onboarding agent prompt — map free text to taste chips (falls back to the raw phrase)
+  const submitObInput = () => {
+    const raw = obInput.trim(); if (!raw) return;
+    const text = raw.toLowerCase();
+    const matched = DICT.filter((d) => d.kw.some((k) => text.includes(k))).map((d) => d.chip);
+    const picks = matched.length ? matched : [raw];
+    setObPick((s) => Array.from(new Set([...s, ...picks])));
+    setObAdded(picks);
+    setObInput("");
+  };
 
   /* feed playback: remember position, advance on explicit action only */
   const scroller = useRef<HTMLDivElement>(null);
@@ -359,49 +372,47 @@ export default function HookedApp() {
                       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : <div style={{ position: "absolute", inset: 0, background: "linear-gradient(158deg, oklch(0.28 0.045 72), oklch(0.17 0.022 60) 56%, oklch(0.13 0.015 50))" }} />}
                   <div style={{ position: "absolute", top: 88, left: 18, fontFamily: "'JetBrains Mono'", fontSize: 10.5, letterSpacing: "0.07em", color: "oklch(0.82 0.02 75 / 0.85)", textTransform: "uppercase", textShadow: "0 1px 6px oklch(0 0 0 / 0.7)" }}>AI teaser{c.hook ? " · hook " + c.hook : ""}</div>
-                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "62%", background: "linear-gradient(transparent, oklch(0.1 0.01 50 / 0.55) 38%, oklch(0.1 0.01 50 / 0.94))" }} />
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "52%", background: "linear-gradient(transparent, oklch(0.08 0.008 55 / 0.5) 30%, oklch(0.07 0.006 55 / 0.97))" }} />
                 </div>
               ) : (
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(158deg, oklch(0.25 0.022 82), oklch(0.16 0.013 65))", overflow: "hidden" }}>
                   <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "0 44px 18%", textAlign: "center" }}>
                     <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 11, letterSpacing: "0.12em", color: "oklch(0.7 0.02 75 / 0.8)", textTransform: "uppercase" }}>{c.type === "paper" ? "Paper" : "News"} · Summary</div>
-                    <div style={{ fontSize: 96, fontWeight: 800, letterSpacing: "-0.045em", lineHeight: 0.95, color: "oklch(0.87 0.06 293)" }}>{c.pullStat}</div>
-                    <div style={{ fontSize: 15, color: DIM, maxWidth: 240 }}>{c.pullLabel}</div>
+                    <div style={{ fontSize: 74, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 0.95, color: "oklch(0.85 0.07 293)" }}>{c.pullStat}</div>
+                    <div style={{ fontSize: 14, color: DIM, maxWidth: 230 }}>{c.pullLabel}</div>
                   </div>
                   <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "62%", background: "linear-gradient(transparent, oklch(0.1 0.01 55 / 0.6) 36%, oklch(0.1 0.01 55 / 0.96))" }} />
                 </div>
               )}
-              {/* content overlay */}
-              <div style={{ position: "absolute", left: 0, right: 88, bottom: 0, padding: "0 18px 104px", zIndex: 8, display: "flex", flexDirection: "column", gap: 9 }}>
+              {/* content overlay — bottom-anchored, single-line speaker, no bullet text over video */}
+              <div style={{ position: "absolute", left: 0, right: 82, bottom: 0, padding: "0 16px 86px", zIndex: 8, display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: "50%", flex: "0 0 auto", background: "linear-gradient(135deg, oklch(0.52 0.06 293), oklch(0.3 0.03 60))", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: "oklch(0.96 0.01 75)", border: "1px solid oklch(1 0 0 / 0.18)" }}>{initials(c.speaker)}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 700, fontSize: 14.5, color: "oklch(0.98 0.008 75)", textShadow: "0 1px 8px oklch(0 0 0 / 0.5)" }}>{c.speaker}</span>
-                    {ms("verified", { fontSize: 16, color: "oklch(0.79 0.11 293)", fontVariationSettings: "'FILL' 1" })}
-                    <span style={{ fontSize: 13, color: "oklch(0.78 0.012 75)", textShadow: "0 1px 8px oklch(0 0 0 / 0.5)" }}>· {c.badge || c.affiliation}</span>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", flex: "0 0 auto", background: "linear-gradient(135deg, oklch(0.52 0.06 293), oklch(0.3 0.03 60))", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: "oklch(0.96 0.01 75)", border: "1px solid oklch(1 0 0 / 0.18)" }}>{initials(c.speaker)}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: "oklch(0.98 0.008 75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textShadow: "0 1px 8px oklch(0 0 0 / 0.5)" }}>{c.speaker}</span>
+                      {ms("verified", { fontSize: 16, color: "oklch(0.79 0.11 293)", fontVariationSettings: "'FILL' 1", flex: "0 0 auto" })}
+                    </div>
+                    <div style={{ fontSize: 12, color: "oklch(0.76 0.012 75)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textShadow: "0 1px 8px oklch(0 0 0 / 0.5)" }}>{c.badge || c.affiliation}</div>
                   </div>
                 </div>
-                <div style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.22, letterSpacing: "-0.012em", color: "oklch(0.99 0.006 75)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", textShadow: "0 1px 14px oklch(0 0 0 / 0.55)" }}>{c.title}</div>
-                {c.points[0] && <div style={{ fontSize: 13.5, lineHeight: 1.4, color: "oklch(0.84 0.01 75)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", textShadow: "0 1px 10px oklch(0 0 0 / 0.5)" }}>{c.points[0]}</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: 9, fontFamily: "'JetBrains Mono'", fontSize: 11, color: DIM }}>
-                  <span style={{ color: "oklch(0.8 0.012 75)" }}>{c.source}</span>
-                  {c.runtime > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{ms("schedule", { fontSize: 13 })}{c.runtime}{c.read ? " min read" : " min"}</span>}
-                  <span style={{ color: MUTE }}>{c.topic}</span>
+                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.24, letterSpacing: "-0.012em", color: "oklch(0.99 0.006 75)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", textShadow: "0 1px 14px oklch(0 0 0 / 0.55)" }}>{c.title}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "'JetBrains Mono'", fontSize: 10.5, color: DIM, whiteSpace: "nowrap", overflow: "hidden" }}>
+                  <span style={{ color: "oklch(0.8 0.012 75)", overflow: "hidden", textOverflow: "ellipsis" }}>{c.source}</span>
+                  {c.runtime > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, flex: "0 0 auto" }}>{ms("schedule", { fontSize: 13 })}{c.runtime}{c.read ? " min read" : " min"}</span>}
+                  <span style={{ color: MUTE, flex: "0 0 auto" }}>{c.topic}</span>
                 </div>
               </div>
-              {/* right rail */}
-              <div style={{ position: "absolute", right: 14, bottom: 104, zIndex: 9, display: "flex", flexDirection: "column", gap: 15, alignItems: "center" }}>
-                <RailBtn onClick={() => like(c)} label={likes}>{ms("favorite", { fontSize: 33, color: liked ? ACCENT : "oklch(0.95 0.008 75)", fontVariationSettings: liked ? "'FILL' 1" : "'FILL' 0", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.55))" })}</RailBtn>
+              {/* right rail — Save leads, lighter icon-only Full/Sound/Share */}
+              <div style={{ position: "absolute", right: 12, bottom: 88, zIndex: 9, display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
                 <button onClick={() => save(c)} style={railBtnStyle}>
-                  <span style={{ width: 54, height: 54, borderRadius: "50%", background: saved ? ACCENT : "oklch(1 0 0 / 0.1)", border: `1px solid ${saved ? ACCENT : "oklch(1 0 0 / 0.22)"}`, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(6px)", boxShadow: saved ? "0 6px 18px oklch(0.5 0.13 293 / 0.45)" : "none", transition: "all .15s" }}>
-                    {ms(saved ? "bookmark_added" : "bookmark", { fontSize: 27, color: saved ? "oklch(0.2 0.03 65)" : "oklch(0.96 0.008 75)", fontVariationSettings: saved ? "'FILL' 1" : "'FILL' 0" })}
+                  <span style={{ width: 52, height: 52, borderRadius: "50%", background: saved ? ACCENT : "oklch(1 0 0 / 0.1)", border: `1px solid ${saved ? ACCENT : "oklch(1 0 0 / 0.22)"}`, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(6px)", boxShadow: saved ? "0 6px 18px oklch(0.5 0.13 293 / 0.45)" : "none", transition: "all .15s" }}>
+                    {ms(saved ? "bookmark_added" : "bookmark", { fontSize: 26, color: saved ? "oklch(0.2 0.03 65)" : "oklch(0.96 0.008 75)", fontVariationSettings: saved ? "'FILL' 1" : "'FILL' 0" })}
                   </span>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: saved ? "oklch(0.84 0.1 293)" : "oklch(0.96 0.008 75)" }}>{saved ? "Saved" : "Save"}</span>
                 </button>
-                <button onClick={() => watchFull(c)} style={railBtnStyle}>
-                  <span style={{ width: 46, height: 46, borderRadius: "50%", background: "oklch(1 0 0 / 0.1)", border: "1px solid oklch(1 0 0 / 0.22)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}>{ms("play_arrow", { fontSize: 23, color: "oklch(0.96 0.008 75)", fontVariationSettings: "'FILL' 1" })}</span>
-                  <span style={railLabel}>Full</span>
-                </button>
+                <RailBtn onClick={() => like(c)} label={likes}>{ms("favorite", { fontSize: 30, color: liked ? ACCENT : "oklch(0.95 0.008 75)", fontVariationSettings: liked ? "'FILL' 1" : "'FILL' 0", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.6))" })}</RailBtn>
+                <RailBtn onClick={() => watchFull(c)} label="Full">{ms("play_circle", { fontSize: 30, color: "oklch(0.94 0.008 75)", fontVariationSettings: "'FILL' 1", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.6))" })}</RailBtn>
                 <RailBtn onClick={() => setMuted((m) => !m)} label="Sound">{ms(muted ? "volume_off" : "volume_up", { fontSize: 27, color: "oklch(0.92 0.008 75)", filter: "drop-shadow(0 2px 6px oklch(0 0 0 / 0.5))" })}</RailBtn>
                 <RailBtn onClick={() => showToast("Link copied")} label="Share">{ms("ios_share", { fontSize: 25, color: "oklch(0.92 0.008 75)", filter: "drop-shadow(0 2px 6px oklch(0 0 0 / 0.5))" })}</RailBtn>
               </div>
@@ -620,16 +631,24 @@ export default function HookedApp() {
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 30 }}>{ms("whatshot", { fontSize: 26, color: "oklch(0.76 0.13 293)", fontVariationSettings: "'FILL' 1" })}<span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em" }}>Hooked</span></div>
         <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.025em", maxWidth: 330 }}>Decide what&rsquo;s worth your 30 minutes.</div>
         <div style={{ fontSize: 15, lineHeight: 1.5, color: DIM, marginTop: 14, maxWidth: 340 }}>Watch a 45-second AI teaser that stacks the most novel points from a long video or paper — then save what earns your time.</div>
-        <div style={{ marginTop: 30, padding: 18, borderRadius: 18, background: "oklch(0.22 0.012 65)", border: "1px solid oklch(1 0 0 / 0.08)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>{ms("smart_display", { fontSize: 30, color: DANGER, fontVariationSettings: "'FILL' 1" })}<div><div style={{ fontSize: 15, fontWeight: 700 }}>Connect YouTube</div><div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginTop: 2 }}>Push your watchlist to a playlist</div></div></div>
-            {yt ? <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 11, background: "oklch(0.78 0.12 150 / 0.16)", color: "oklch(0.82 0.12 150)", fontWeight: 700, fontSize: 13 }}>{ms("check_circle", { fontSize: 17, fontVariationSettings: "'FILL' 1" })}Connected</div>
-              : <button onClick={() => signInWithGoogle()} style={{ padding: "9px 15px", borderRadius: 11, border: "1px solid oklch(0.76 0.13 293 / 0.5)", background: ACCENT_SOFT, color: "oklch(0.81 0.1 293)", fontWeight: 700, fontSize: 13, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>Connect</button>}
+        {/* PRIMARY: talk to the agent */}
+        <div style={{ marginTop: 26, borderRadius: 20, background: "oklch(0.76 0.13 293 / 0.1)", border: "1px solid oklch(0.76 0.13 293 / 0.34)", padding: "14px 14px 15px", boxShadow: "0 8px 26px oklch(0.5 0.1 293 / 0.16)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "1px 2px 11px" }}>{ms("graphic_eq", { fontSize: 19, color: "oklch(0.81 0.11 293)", fontVariationSettings: "'FILL' 1" })}<span style={{ fontSize: 14, fontWeight: 700, color: "oklch(0.87 0.09 293)" }}>Tell me what you want to see</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 7px 7px 15px", borderRadius: 14, background: "oklch(0.23 0.012 65)", border: "1px solid oklch(1 0 0 / 0.12)" }}>
+            <input value={obInput} onChange={(e) => setObInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitObInput(); } }} placeholder="“cutting-edge agent memory & Postgres-for-AI, skip the 101s”" style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: "oklch(0.96 0.008 75)", fontSize: 13.5, fontFamily: "inherit" }} />
+            <button onClick={submitObInput} style={{ width: 40, height: 40, borderRadius: 12, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto", boxShadow: "0 4px 14px oklch(0.6 0.13 293 / 0.4)" }}>{ms("arrow_upward", { fontSize: 21, fontVariationSettings: "'FILL' 1" })}</button>
           </div>
+          {obAdded.length > 0 && (
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 11, padding: "0 2px", fontSize: 12.5, lineHeight: 1.45, color: "oklch(0.84 0.06 293)" }}>
+              {ms("check_circle", { fontSize: 16, color: "oklch(0.79 0.11 293)", fontVariationSettings: "'FILL' 1", flex: "0 0 auto" })}
+              <span><b style={{ color: "oklch(0.88 0.08 293)" }}>Added to your feed:</b> {obAdded.join(", ")}</span>
+            </div>
+          )}
         </div>
-        <div style={{ marginTop: 28 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Where do you want the cutting edge?</div>
-          <div style={{ fontSize: 13, color: "oklch(0.62 0.012 75)", marginTop: 4 }}>We&rsquo;ll boost these in your feed.</div>
+        {/* tap a few to get started */}
+        <div style={{ marginTop: 26 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Or tap a few to get started</div>
+          <div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginTop: 4 }}>Cutting-edge topics we can boost right away.</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
             {SUGGEST_BOOST.map((c) => { const on = obPick.includes(c); return (
               <button key={c} onClick={() => setObPick((s) => on ? s.filter((x) => x !== c) : [...s, c])} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 13px", borderRadius: 999, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: on ? ACCENT_SOFT : "oklch(1 0 0 / 0.04)", color: on ? ACCENT : DIM, border: `1px solid ${on ? "oklch(0.76 0.13 293 / 0.5)" : "oklch(1 0 0 / 0.1)"}` }}>{ms(on ? "check" : "add", { fontSize: 15 })}{c}</button>
@@ -637,12 +656,27 @@ export default function HookedApp() {
           </div>
         </div>
         <div style={{ marginTop: 28 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>What do you already know well?</div>
-          <div style={{ fontSize: 13, color: "oklch(0.62 0.012 75)", marginTop: 4 }}>We&rsquo;ll skip the basics so the bar stays high.</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>What do you already know well?</div>
+          <div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginTop: 4 }}>We&rsquo;ll skip the basics so the bar stays high.</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
             {SUGGEST_KNOW.map((c) => { const on = obKnow.includes(c); return (
               <button key={c} onClick={() => setObKnow((s) => on ? s.filter((x) => x !== c) : [...s, c])} style={{ padding: "9px 13px", borderRadius: 999, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: on ? "oklch(0.4 0.012 70 / 0.4)" : "oklch(1 0 0 / 0.04)", color: on ? DIM : MUTE, border: `1px solid ${on ? "oklch(1 0 0 / 0.18)" : "oklch(1 0 0 / 0.1)"}`, textDecoration: on ? "line-through" : "none" }}>{c}</button>
             ); })}
+          </div>
+        </div>
+        {/* SECONDARY: import youtube history */}
+        <div style={{ marginTop: 30, paddingTop: 22, borderTop: "1px solid oklch(1 0 0 / 0.07)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+            {ms("smart_display", { fontSize: 22, color: yt ? DANGER : "oklch(0.6 0.012 75)", fontVariationSettings: "'FILL' 1" })}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "oklch(0.82 0.012 75)" }}>Import YouTube history</div>
+              <div style={{ fontSize: 11.5, color: "oklch(0.55 0.012 75)", marginTop: 2, lineHeight: 1.4 }}>Optional · upload your Google Takeout export to seed taste faster</div>
+            </div>
+            {yt ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "8px 11px", borderRadius: 11, background: "oklch(0.78 0.12 150 / 0.14)", color: "oklch(0.82 0.12 150)", fontWeight: 600, fontSize: 12.5, flex: "0 0 auto" }}>{ms("check_circle", { fontSize: 15, fontVariationSettings: "'FILL' 1" })}Imported</div>
+            ) : (
+              <button onClick={() => signInWithGoogle()} style={{ padding: "8px 13px", borderRadius: 11, border: "1px solid oklch(1 0 0 / 0.14)", background: "oklch(1 0 0 / 0.03)", color: "oklch(0.7 0.012 75)", fontWeight: 600, fontSize: 12.5, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap", flex: "0 0 auto" }}>Import</button>
+            )}
           </div>
         </div>
       </div>
