@@ -56,7 +56,7 @@ function chipMatch(chip: string, hay: string) { const e = DICT.find((d) => d.chi
 type Tab = "feed" | "tune" | "saved" | "you";
 interface CState { liked?: boolean; saved?: boolean; watched?: boolean }
 
-export default function HookedApp() {
+export default function BurrfeedApp() {
   const { cards: allCards, loading } = useFeed();
   const [tab, setTab] = useState<Tab>("feed");
   const [showOnboarding, setShowOnboarding] = useState(true);
@@ -156,7 +156,7 @@ export default function HookedApp() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "push failed");
       setSendSuccess(true);
-      showToast(`Pushed ${data.added} to “Hooked Watchlist”`);
+      showToast(`Pushed ${data.added} to “Burrfeed Watchlist”`);
     } catch (e: any) {
       const msg = String(e?.message || "");
       showToast(msg.includes("token") || msg.includes("401") ? "Reconnect YouTube to push" : "Push failed — try again");
@@ -330,7 +330,7 @@ export default function HookedApp() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", pointerEvents: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             {ms("whatshot", { fontSize: 20, color: ACCENT, fontVariationSettings: "'FILL' 1" })}
-            <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>Hooked</span>
+            <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>Burrfeed</span>
           </div>
           <button onClick={() => setTab("tune")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 999, background: ACCENT_SOFT, border: "1px solid oklch(0.76 0.13 293 / 0.4)", color: "oklch(0.84 0.1 293)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", backdropFilter: "blur(8px)" }}>
             {ms("auto_awesome", { fontSize: 15, fontVariationSettings: "'FILL' 1" })}Tuned for you
@@ -550,17 +550,17 @@ export default function HookedApp() {
             <div style={{ padding: 15, borderRadius: 16, background: CARDBG, border: `1px solid ${HAIR}`, marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: yt ? 12 : 4 }}>
                 {ms("smart_display", { fontSize: 24, color: yt ? DANGER : MUTE, fontVariationSettings: "'FILL' 1" })}
-                <div style={{ fontSize: 13.5 }}>{yt ? <><b>YouTube connected</b><span style={{ color: "oklch(0.6 0.012 75)" }}> · hooked@aws</span></> : <b style={{ fontWeight: 700 }}>YouTube not connected</b>}</div>
+                <div style={{ fontSize: 13.5 }}>{yt ? <><b>YouTube connected</b><span style={{ color: "oklch(0.6 0.012 75)" }}> · burrfeed@aws</span></> : <b style={{ fontWeight: 700 }}>YouTube not connected</b>}</div>
               </div>
               {yt ? (
                 sendSuccess ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px", borderRadius: 12, background: "oklch(0.78 0.12 150 / 0.14)", border: "1px solid oklch(0.78 0.12 150 / 0.35)" }}>{ms("check_circle", { fontSize: 21, color: "oklch(0.82 0.12 150)", fontVariationSettings: "'FILL' 1" })}<div style={{ fontSize: 13, color: "oklch(0.86 0.06 150)" }}>Pushed to <b>&ldquo;Hooked Watchlist&rdquo;</b> · opens in YouTube</div></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px", borderRadius: 12, background: "oklch(0.78 0.12 150 / 0.14)", border: "1px solid oklch(0.78 0.12 150 / 0.35)" }}>{ms("check_circle", { fontSize: 21, color: "oklch(0.82 0.12 150)", fontVariationSettings: "'FILL' 1" })}<div style={{ fontSize: 13, color: "oklch(0.86 0.06 150)" }}>Pushed to <b>&ldquo;Burrfeed Watchlist&rdquo;</b> · opens in YouTube</div></div>
                 ) : (
                   <button onClick={pushYouTube} disabled={pushing} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 13, borderRadius: 13, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 14, fontFamily: "inherit", cursor: pushing ? "default" : "pointer", opacity: pushing ? 0.7 : 1 }}>{ms("playlist_add", { fontSize: 19 })}{pushing ? "Pushing…" : `Send ${savedCards.length} to YouTube`}</button>
                 )
               ) : (
                 <>
-                  <div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginBottom: 12, lineHeight: 1.45 }}>Connect to push saves into a &ldquo;Hooked Watchlist&rdquo; playlist.</div>
+                  <div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", marginBottom: 12, lineHeight: 1.45 }}>Connect to push saves into a &ldquo;Burrfeed Watchlist&rdquo; playlist.</div>
                   <div style={{ display: "flex", gap: 9 }}>
                     <button onClick={() => signInWithGoogle()} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 12, borderRadius: 12, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 13.5, fontFamily: "inherit", cursor: "pointer" }}>{ms("link", { fontSize: 18 })}Connect</button>
                     <button onClick={() => showToast("Links copied to clipboard")} style={{ padding: "12px 15px", borderRadius: 12, border: "1px solid oklch(1 0 0 / 0.14)", background: "oklch(1 0 0 / 0.04)", color: "oklch(0.88 0.008 75)", fontWeight: 600, fontSize: 13.5, fontFamily: "inherit", cursor: "pointer" }}>Copy links</button>
@@ -607,7 +607,7 @@ export default function HookedApp() {
       <div style={{ marginTop: 14, padding: 16, borderRadius: 16, background: CARDBG, border: `1px solid ${HAIR}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           {ms("smart_display", { fontSize: 26, color: yt ? DANGER : MUTE, fontVariationSettings: "'FILL' 1" })}
-          <div><div style={{ fontSize: 14.5, fontWeight: 700 }}>YouTube</div><div style={{ fontSize: 12.5, color: yt ? POS : "oklch(0.6 0.012 75)", marginTop: 2 }}>{yt ? "Connected · hooked@aws" : "Not connected"}</div></div>
+          <div><div style={{ fontSize: 14.5, fontWeight: 700 }}>YouTube</div><div style={{ fontSize: 12.5, color: yt ? POS : "oklch(0.6 0.012 75)", marginTop: 2 }}>{yt ? "Connected · burrfeed@aws" : "Not connected"}</div></div>
         </div>
         <button onClick={() => (yt ? signOut() : signInWithGoogle())} style={yt ? { padding: "9px 14px", borderRadius: 11, border: "1px solid oklch(1 0 0 / 0.14)", background: "oklch(1 0 0 / 0.04)", color: MUTE, fontWeight: 600, fontSize: 13, fontFamily: "inherit", cursor: "pointer" } : { padding: "9px 14px", borderRadius: 11, border: "1px solid oklch(0.76 0.13 293 / 0.5)", background: ACCENT_SOFT, color: "oklch(0.81 0.1 293)", fontWeight: 700, fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>{yt ? "Disconnect" : "Connect"}</button>
       </div>
@@ -620,7 +620,7 @@ export default function HookedApp() {
         <div style={{ flex: 1, padding: 15, borderRadius: 15, background: CARDBG, border: `1px solid ${HAIR}`, textAlign: "center" }}><div style={{ fontSize: 26, fontWeight: 800 }}>{fmtTotal(savedMin)}</div><div style={{ fontSize: 11.5, color: "oklch(0.62 0.012 75)", marginTop: 2 }}>To watch</div></div>
       </div>
       <button onClick={() => setShowOnboarding(true)} style={{ width: "100%", marginTop: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 14, borderRadius: 14, border: "1px solid oklch(1 0 0 / 0.1)", background: CARDBG, color: "oklch(0.88 0.008 75)", fontWeight: 600, fontSize: 14, fontFamily: "inherit", cursor: "pointer" }}>{ms("restart_alt", { fontSize: 19 })}Redo taste setup</button>
-      <div style={{ textAlign: "center", fontSize: 11.5, color: "oklch(0.45 0.012 75)", marginTop: 20, fontFamily: "'JetBrains Mono'" }}>Hooked · teaser-feed</div>
+      <div style={{ textAlign: "center", fontSize: 11.5, color: "oklch(0.45 0.012 75)", marginTop: 20, fontFamily: "'JetBrains Mono'" }}>Burrfeed · teaser-feed</div>
     </div>
   );
 
@@ -628,7 +628,7 @@ export default function HookedApp() {
   const renderOnboarding = () => (
     <>
       <div style={{ position: "absolute", inset: 0, overflowY: "auto", padding: "54px 22px 120px", background: "linear-gradient(180deg, oklch(0.2 0.025 70), oklch(0.155 0.01 65) 60%)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 30 }}>{ms("whatshot", { fontSize: 26, color: "oklch(0.76 0.13 293)", fontVariationSettings: "'FILL' 1" })}<span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em" }}>Hooked</span></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 30 }}>{ms("whatshot", { fontSize: 26, color: "oklch(0.76 0.13 293)", fontVariationSettings: "'FILL' 1" })}<span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em" }}>Burrfeed</span></div>
         <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.025em", maxWidth: 330 }}>Decide what&rsquo;s worth your 30 minutes.</div>
         <div style={{ fontSize: 15, lineHeight: 1.5, color: DIM, marginTop: 14, maxWidth: 340 }}>Watch a 45-second AI teaser that stacks the most novel points from a long video or paper — then save what earns your time.</div>
         {/* PRIMARY: talk to the agent */}

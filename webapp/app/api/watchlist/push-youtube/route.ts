@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// Pushes saved videos into a "Hooked Watchlist" playlist on the user's YouTube
-// account, using the Google OAuth provider token from their Supabase session.
+// Pushes saved videos into a "Burrfeed Watchlist" playlist on the user's
+// YouTube account, using the Google OAuth provider token from their Supabase session.
 const YT = "https://www.googleapis.com/youtube/v3";
-const PLAYLIST_TITLE = "Hooked Watchlist";
+const PLAYLIST_TITLE = "Burrfeed Watchlist";
 
 async function yt(path: string, token: string, init?: RequestInit) {
   const r = await fetch(`${YT}/${path}`, {
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   if (!videoIds.length) return NextResponse.json({ error: "no_videos" }, { status: 400 });
 
   try {
-    // 1. reuse an existing "Hooked Watchlist" playlist, else create one
+    // 1. reuse an existing "Burrfeed Watchlist" playlist, else create one
     const mine = await yt("playlists?part=snippet&mine=true&maxResults=50", token);
     let playlistId: string | undefined =
       mine.items?.find((p: any) => p.snippet?.title === PLAYLIST_TITLE)?.id;
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       const created = await yt("playlists?part=snippet,status", token, {
         method: "POST",
         body: JSON.stringify({
-          snippet: { title: PLAYLIST_TITLE, description: "Saved from Hooked" },
+          snippet: { title: PLAYLIST_TITLE, description: "Saved from Burrfeed" },
           status: { privacyStatus: "private" },
         }),
       });

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Hooked — decide what's worth your 30 minutes",
+  title: "Burrfeed — decide what's worth your 30 minutes",
   description: "A teaser feed that helps you decide which long-form video or paper is worth your time.",
 };
 

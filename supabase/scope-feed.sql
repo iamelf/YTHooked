@@ -1,4 +1,4 @@
--- Hooked — per-user feed scoping (Part 2)
+-- Burrfeed — per-user feed scoping (Part 2)
 --
 -- RLS already restricts reads to `owner_id is null OR owner_id = auth.uid()`
 -- (see schema.sql), so scoping a teaser to one person is just a matter of

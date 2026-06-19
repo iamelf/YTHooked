@@ -1,5 +1,5 @@
-import HookedApp from "@/components/HookedApp";
+import BurrfeedApp from "@/components/BurrfeedApp";
 
 export default function Page() {
-  return <HookedApp />;
+  return <BurrfeedApp />;
 }

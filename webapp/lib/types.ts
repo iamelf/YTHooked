@@ -1,4 +1,4 @@
-// Hooked — shared types (mirror of the Supabase schema)
+// Burrfeed — shared types (mirror of the Supabase schema)
 
 export type SourceType = "youtube" | "arxiv" | "news";
 export type ReactionKind = "up" | "down" | "save" | "watch_full" | "watchthrough";

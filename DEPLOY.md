@@ -1,7 +1,7 @@
-# Deploying Hooked
+# Deploying Burrfeed
 
-**Live:** https://webapp-one-gamma-17.vercel.app (Vercel project
-`iamelfs-projects/webapp`, deployed via `vercel --prod` from `webapp/`).
+**Live:** https://burrfeed.vercel.app (Vercel project
+`iamelfs-projects/burrfeed`, deployed via `vercel --prod` from `webapp/`).
 The app loads and anonymous feed reads work today; **sign-in needs the Google
 OAuth steps in §1 below** before "Connect" will complete.
 
@@ -32,8 +32,8 @@ scope, so the session carries a `provider_token` we use to push the watchlist.
 paste the Client ID + secret, save.
 
 **c. Supabase** → Authentication → URL Configuration:
-- **Site URL**: `https://webapp-one-gamma-17.vercel.app`
-- **Redirect URLs**: add `https://webapp-one-gamma-17.vercel.app/**` and
+- **Site URL**: `https://burrfeed.vercel.app`
+- **Redirect URLs**: add `https://burrfeed.vercel.app/**` and
   `http://localhost:3000/**` for local dev.
 
 The app already requests the right scope (`lib/account.ts` →

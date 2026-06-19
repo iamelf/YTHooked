@@ -1,4 +1,4 @@
-// Hooked — browser Supabase client.
+// Burrfeed — browser Supabase client.
 // Uses the PUBLISHABLE key (sb_publishable_...). It is RLS-enforced and safe to
 // ship to the browser. Never put the sb_secret_... key here — that's worker-only.
 

@@ -1,4 +1,4 @@
-# Hooked — web app integration (read-side)
+# Burrfeed — web app integration (read-side)
 
 Drop-in data layer for the Next.js app that Claude Design produces. The serving
 plane is already live in Supabase (8 teasers in `feed_items` + Storage).

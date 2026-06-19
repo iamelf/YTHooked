@@ -1,4 +1,4 @@
-// Hooked — feed data access. Drop these into the Claude Design app; the UI
+// Burrfeed — feed data access. Drop these into the Claude Design app; the UI
 // components just call these and render FeedItem[]. Reads work for anyone
 // (shared rows are RLS-readable by anon); reactions/watchlist require auth.
 
