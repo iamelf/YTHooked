@@ -329,7 +329,7 @@ export default function BurrfeedApp() {
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 25, padding: "16px 14px 26px", background: "linear-gradient(oklch(0.1 0.01 55 / 0.82), transparent)", pointerEvents: "none" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", pointerEvents: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            {ms("whatshot", { fontSize: 20, color: ACCENT, fontVariationSettings: "'FILL' 1" })}
+            <img src="/burrfeed-mark.svg" alt="" width={22} height={22} style={{ display: "block" }} />
             <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" }}>Burrfeed</span>
           </div>
           <button onClick={() => setTab("tune")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 999, background: ACCENT_SOFT, border: "1px solid oklch(0.76 0.13 293 / 0.4)", color: "oklch(0.84 0.1 293)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", backdropFilter: "blur(8px)" }}>
@@ -628,7 +628,7 @@ export default function BurrfeedApp() {
   const renderOnboarding = () => (
     <>
       <div style={{ position: "absolute", inset: 0, overflowY: "auto", padding: "54px 22px 120px", background: "linear-gradient(180deg, oklch(0.2 0.025 70), oklch(0.155 0.01 65) 60%)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 30 }}>{ms("whatshot", { fontSize: 26, color: "oklch(0.76 0.13 293)", fontVariationSettings: "'FILL' 1" })}<span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em" }}>Burrfeed</span></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 30 }}><img src="/burrfeed-mark.svg" alt="" width={30} height={30} style={{ display: "block" }} /><span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em" }}>Burrfeed</span></div>
         <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.025em", maxWidth: 330 }}>Decide what&rsquo;s worth your 30 minutes.</div>
         <div style={{ fontSize: 15, lineHeight: 1.5, color: DIM, marginTop: 14, maxWidth: 340 }}>Watch a 45-second AI teaser that stacks the most novel points from a long video or paper — then save what earns your time.</div>
         {/* PRIMARY: talk to the agent */}
