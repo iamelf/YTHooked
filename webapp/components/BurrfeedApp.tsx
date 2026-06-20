@@ -60,7 +60,9 @@ export default function BurrfeedApp() {
   const { cards: allCards, loading } = useFeed();
   const [tab, setTab] = useState<Tab>("feed");
   const [showOnboarding, setShowOnboarding] = useState(true);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(true);            // browsers require muted to autoplay
+  const [speed, setSpeed] = useState(1.25);            // default a touch faster than 1× for experts
+  const soundPref = useRef(false);                     // has the user opted into sound before?
   const [user, setUser] = useState<any>(null);
   const [providerToken, setProviderToken] = useState<string | null>(null);
   const yt = !!user; // signed in with Google (YouTube scope) === "connected"
@@ -295,7 +297,7 @@ export default function BurrfeedApp() {
     Object.entries(vids.current).forEach(([id, v]) => { if (v && id !== activeId) v.pause(); });
     setPaused(false); setEnded(false); setProgress(0); setBuffering(false);
     const v = activeId ? vids.current[activeId] : null;
-    if (v && tab === "feed" && !showOnboarding) { v.muted = muted; v.play().catch(() => {}); }
+    if (v && tab === "feed" && !showOnboarding) { v.muted = muted; v.playbackRate = speed; v.play().catch(() => {}); }
   }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // pause when the browser tab/window is hidden; resume on return
@@ -314,11 +316,28 @@ export default function BurrfeedApp() {
   useEffect(() => {
     const v = activeId ? vids.current[activeId] : null;
     if (!v) return;
-    if (tab === "feed" && !showOnboarding) { if (!paused && !ended) { v.muted = muted; v.play().catch(() => {}); } }
+    if (tab === "feed" && !showOnboarding) { if (!paused && !ended) { v.muted = muted; v.playbackRate = speed; v.play().catch(() => {}); } }
     else v.pause();
   }, [tab, showOnboarding]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { const v = activeId ? vids.current[activeId] : null; if (v) v.muted = muted; }, [muted, activeId]);
+  // keep the active video's mute + playback rate in sync with state (rate resets on each media load)
+  useEffect(() => { const v = activeId ? vids.current[activeId] : null; if (v) { v.muted = muted; v.playbackRate = speed; } }, [muted, speed, activeId]);
+
+  // restore saved speed + sound preference; once the user has opted into sound, auto-unmute on their first tap each load
+  useEffect(() => {
+    try {
+      const s = parseFloat(localStorage.getItem("bf_speed") || "");
+      if (s >= 0.5 && s <= 3) setSpeed(s);
+      if (localStorage.getItem("bf_sound") === "on") soundPref.current = true;
+    } catch {}
+    const onFirst = () => { if (soundPref.current) setMuted(false); };
+    window.addEventListener("pointerdown", onFirst, { once: true });
+    return () => window.removeEventListener("pointerdown", onFirst);
+  }, []);
+
+  const SPEEDS = [1, 1.25, 1.5, 2];
+  const cycleSpeed = () => setSpeed((s) => { const next = SPEEDS[(SPEEDS.indexOf(s) + 1) % SPEEDS.length]; try { localStorage.setItem("bf_speed", String(next)); } catch {} return next; });
+  const toggleSound = () => setMuted((m) => { const nm = !m; soundPref.current = !nm; try { localStorage.setItem("bf_sound", nm ? "off" : "on"); } catch {} return nm; });
 
   const tapVideo = (id: string) => {
     if (id !== activeRef.current || ended) return;
@@ -456,7 +475,8 @@ export default function BurrfeedApp() {
                 </button>
                 <RailBtn onClick={() => like(c)} label={likes}>{ms("favorite", { fontSize: 30, color: liked ? ACCENT : "oklch(0.95 0.008 75)", fontVariationSettings: liked ? "'FILL' 1" : "'FILL' 0", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.6))" })}</RailBtn>
                 <RailBtn onClick={() => watchFull(c)} label="Full">{ms("play_circle", { fontSize: 30, color: "oklch(0.94 0.008 75)", fontVariationSettings: "'FILL' 1", filter: "drop-shadow(0 2px 7px oklch(0 0 0 / 0.6))" })}</RailBtn>
-                <RailBtn onClick={() => setMuted((m) => !m)} label="Sound">{ms(muted ? "volume_off" : "volume_up", { fontSize: 27, color: "oklch(0.92 0.008 75)", filter: "drop-shadow(0 2px 6px oklch(0 0 0 / 0.5))" })}</RailBtn>
+                <RailBtn onClick={toggleSound} label="Sound">{ms(muted ? "volume_off" : "volume_up", { fontSize: 27, color: muted ? "oklch(0.92 0.008 75)" : ACCENT, filter: "drop-shadow(0 2px 6px oklch(0 0 0 / 0.5))" })}</RailBtn>
+                <RailBtn onClick={cycleSpeed} label={`${speed}×`}>{ms("speed", { fontSize: 26, color: speed !== 1 ? ACCENT : "oklch(0.92 0.008 75)", filter: "drop-shadow(0 2px 6px oklch(0 0 0 / 0.5))" })}</RailBtn>
                 <RailBtn onClick={() => showToast("Link copied")} label="Share">{ms("ios_share", { fontSize: 25, color: "oklch(0.92 0.008 75)", filter: "drop-shadow(0 2px 6px oklch(0 0 0 / 0.5))" })}</RailBtn>
               </div>
               {/* tap-to-resume (paused) */}
