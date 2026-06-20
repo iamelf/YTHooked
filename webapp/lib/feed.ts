@@ -39,6 +39,18 @@ export async function toggleWatchlist(itemId: string, on: boolean) {
   }
 }
 
+/** Mark saved items as pushed to YouTube (so we don't re-push across sessions). */
+export async function markPushed(itemIds: string[]) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !itemIds.length) return;
+  const { error } = await supabase
+    .from("watchlist")
+    .update({ youtube_pushed: true })
+    .eq("user_id", user.id)
+    .in("item_id", itemIds);
+  if (error) throw error;
+}
+
 /** Mark a saved item watched / unwatched (no-op if it isn't on the watchlist). */
 export async function setWatched(itemId: string, watched: boolean) {
   const { data: { user } } = await supabase.auth.getUser();

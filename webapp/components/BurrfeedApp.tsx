@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFeed, type Card } from "@/lib/useFeed";
-import { recordReaction, toggleWatchlist, setWatched } from "@/lib/feed";
+import { recordReaction, toggleWatchlist, setWatched, markPushed } from "@/lib/feed";
 import { supabase } from "@/lib/supabase";
 import { signInWithGoogle, signOut, loadProfile, saveProfile, loadReactionState } from "@/lib/account";
 
@@ -71,7 +71,7 @@ export default function BurrfeedApp() {
   const [cstate, setCstate] = useState<Record<string, CState>>({});
   const [feedUpdated, setFeedUpdated] = useState(false);
   const [tuneLog, setTuneLog] = useState<{ boost: string[]; mute: string[] } | null>(null);
-  const [sendSuccess, setSendSuccess] = useState(false);
+  const [pushedIds, setPushedIds] = useState<Set<string>>(new Set()); // external_ids already in YouTube
   const [toast, setToast] = useState<string | null>(null);
   const [tuneInput, setTuneInput] = useState("");
   const [obPick, setObPick] = useState<string[]>([]);
@@ -106,11 +106,14 @@ export default function BurrfeedApp() {
       const [prof, rx] = await Promise.all([loadProfile(), loadReactionState()]);
       if (prof) { setBoosted(prof.boosted || []); setMutedTopics(prof.muted || []); setCredFloor(prof.novelty_floor === "expert"); }
       const next: Record<string, CState> = {};
+      const pushedNext = new Set<string>();
       allCards.forEach((c) => {
         const st = { liked: rx.liked.has(c.dbId), saved: rx.saved.has(c.dbId), watched: rx.watched.has(c.dbId) };
         if (st.liked || st.saved || st.watched) next[c.id] = st;
+        if (rx.pushed.has(c.dbId)) pushedNext.add(c.id);
       });
       setCstate(next);
+      setPushedIds(pushedNext);
     })();
   }, [user, allCards]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -135,31 +138,62 @@ export default function BurrfeedApp() {
 
   const savedCards = allCards.filter((c) => cs(c.id).saved);
   const savedMin = savedCards.reduce((a, c) => a + c.runtime, 0);
+  const savedVideoCards = savedCards.filter((c) => c.videoId);          // pushable to YouTube
+  const unpushed = savedVideoCards.filter((c) => !pushedIds.has(c.id)); // not in the playlist yet
 
   /* actions — UI state keyed by external_id (c.id); persistence by feed_items.id (c.dbId) */
   const like = (c: Card) => { const n = !cs(c.id).liked; setCS(c.id, { liked: n }); recordReaction(c.dbId, n ? "up" : "down").catch(() => {}); };
-  const save = (c: Card) => { const n = !cs(c.id).saved; setCS(c.id, { saved: n }); toggleWatchlist(c.dbId, n).catch(() => {}); showToast(n ? "Saved to Watchlist" : "Removed from Watchlist"); };
   const watchFull = (c: Card) => { recordReaction(c.dbId, "watch_full").catch(() => {}); window.open(c.source_url, "_blank"); showToast(c.hook ? "Opening at hook · " + c.hook : "Opening source…"); };
 
   const [pushing, setPushing] = useState(false);
-  const pushYouTube = async () => {
+  const [playlistUrl, setPlaylistUrl] = useState<string | null>(null);
+
+  // Push given cards' videos to the Burrfeed Watchlist playlist (API dedupes).
+  // Returns null if it can't run (no token / no videos). Marks them pushed on success.
+  const pushVideos = async (cards: Card[]): Promise<{ added: number; alreadyThere: number } | null> => {
+    const vids = cards.map((c) => c.videoId).filter(Boolean) as string[];
+    if (!vids.length || !providerToken) return null;
+    const res = await fetch("/api/watchlist/push-youtube", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerToken, videoIds: vids }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "push failed");
+    const pushedCards = cards.filter((c) => c.videoId);
+    setPushedIds((s) => { const n = new Set(s); pushedCards.forEach((c) => n.add(c.id)); return n; });
+    markPushed(pushedCards.map((c) => c.dbId)).catch(() => {});
+    if (data.url) setPlaylistUrl(data.url);
+    return { added: data.added ?? 0, alreadyThere: data.alreadyThere ?? 0 };
+  };
+
+  const save = (c: Card) => {
+    const n = !cs(c.id).saved;
+    setCS(c.id, { saved: n });
+    toggleWatchlist(c.dbId, n).catch(() => {});
+    if (!n) { showToast("Removed from Watchlist"); return; }
+    // saved → auto-sync to YouTube if it's a video and we're connected with a live token
+    if (c.videoId && yt && providerToken) {
+      showToast("Saved · adding to YouTube…");
+      pushVideos([c])
+        .then((r) => showToast(r?.added ? "Saved · added to YouTube" : "Saved · already in YouTube"))
+        .catch(() => showToast("Saved · couldn’t reach YouTube"));
+    } else {
+      showToast(c.videoId && yt ? "Saved · reconnect YouTube to sync" : "Saved to Watchlist");
+    }
+  };
+
+  // Manual catch-up: push everything saved-but-not-yet-in-YouTube.
+  const syncYouTube = async () => {
     if (pushing) return;
     if (!providerToken) { signInWithGoogle(); return; } // re-grant scope to get a fresh token
-    const videoIds = savedCards.map((c) => c.videoId).filter(Boolean);
-    if (!videoIds.length) { showToast("No YouTube videos to push"); return; }
+    if (!unpushed.length) return;
     setPushing(true);
     try {
-      const res = await fetch("/api/watchlist/push-youtube", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerToken, videoIds }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "push failed");
-      setSendSuccess(true);
-      showToast(`Pushed ${data.added} to “Burrfeed Watchlist”`);
+      const r = await pushVideos(unpushed);
+      if (r) showToast(r.added ? `Synced ${r.added} to “Burrfeed Watchlist”` : "Already in YouTube");
     } catch (e: any) {
       const msg = String(e?.message || "");
-      showToast(msg.includes("token") || msg.includes("401") ? "Reconnect YouTube to push" : "Push failed — try again");
+      showToast(msg.includes("token") || msg.includes("401") ? "Reconnect YouTube to sync" : "Sync failed — try again");
     } finally {
       setPushing(false);
     }
@@ -562,10 +596,16 @@ export default function BurrfeedApp() {
                 <div style={{ fontSize: 13.5 }}>{yt ? <><b>YouTube connected</b><span style={{ color: "oklch(0.6 0.012 75)" }}> · burrfeed@aws</span></> : <b style={{ fontWeight: 700 }}>YouTube not connected</b>}</div>
               </div>
               {yt ? (
-                sendSuccess ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px", borderRadius: 12, background: "oklch(0.78 0.12 150 / 0.14)", border: "1px solid oklch(0.78 0.12 150 / 0.35)" }}>{ms("check_circle", { fontSize: 21, color: "oklch(0.82 0.12 150)", fontVariationSettings: "'FILL' 1" })}<div style={{ fontSize: 13, color: "oklch(0.86 0.06 150)" }}>Pushed to <b>&ldquo;Burrfeed Watchlist&rdquo;</b> · opens in YouTube</div></div>
+                savedVideoCards.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: "oklch(0.62 0.012 75)", lineHeight: 1.45 }}>Save a video and it auto-syncs to your <b>&ldquo;Burrfeed Watchlist&rdquo;</b> playlist.</div>
+                ) : unpushed.length === 0 ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px", borderRadius: 12, background: "oklch(0.78 0.12 150 / 0.14)", border: "1px solid oklch(0.78 0.12 150 / 0.35)" }}>
+                    {ms("check_circle", { fontSize: 21, color: "oklch(0.82 0.12 150)", fontVariationSettings: "'FILL' 1" })}
+                    <div style={{ fontSize: 13, color: "oklch(0.86 0.06 150)", flex: 1 }}>All {savedVideoCards.length} synced to <b>&ldquo;Burrfeed Watchlist&rdquo;</b></div>
+                    {playlistUrl && <a href={playlistUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "oklch(0.82 0.12 150)", textDecoration: "none", whiteSpace: "nowrap" }}>View →</a>}
+                  </div>
                 ) : (
-                  <button onClick={pushYouTube} disabled={pushing} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 13, borderRadius: 13, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 14, fontFamily: "inherit", cursor: pushing ? "default" : "pointer", opacity: pushing ? 0.7 : 1 }}>{ms("playlist_add", { fontSize: 19 })}{pushing ? "Pushing…" : `Send ${savedCards.length} to YouTube`}</button>
+                  <button onClick={syncYouTube} disabled={pushing} style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 13, borderRadius: 13, border: "none", background: ACCENT, color: "oklch(0.2 0.03 65)", fontWeight: 700, fontSize: 14, fontFamily: "inherit", cursor: pushing ? "default" : "pointer", opacity: pushing ? 0.7 : 1 }}>{ms("playlist_add", { fontSize: 19 })}{pushing ? "Syncing…" : `Sync ${unpushed.length} to YouTube`}</button>
                 )
               ) : (
                 <>

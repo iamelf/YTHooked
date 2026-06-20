@@ -40,10 +40,24 @@ export async function POST(req: NextRequest) {
       playlistId = created.id;
     }
 
-    // 2. add each video (best-effort; skip dupes/failures)
-    let added = 0;
+    // 2. list videos already in the playlist so we never insert duplicates
+    const existing = new Set<string>();
+    let pageToken = "";
+    for (let i = 0; i < 4; i++) { // up to ~200 items
+      const page = await yt(
+        `playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=50${pageToken ? `&pageToken=${pageToken}` : ""}`,
+        token,
+      );
+      (page.items || []).forEach((it: any) => { const v = it.contentDetails?.videoId; if (v) existing.add(v); });
+      if (!page.nextPageToken) break;
+      pageToken = page.nextPageToken;
+    }
+
+    // 3. add only the videos not already present (best-effort)
+    let added = 0, alreadyThere = 0;
     const errors: string[] = [];
     for (const videoId of videoIds) {
+      if (existing.has(videoId)) { alreadyThere++; continue; }
       try {
         await yt("playlistItems?part=snippet", token, {
           method: "POST",
@@ -51,6 +65,7 @@ export async function POST(req: NextRequest) {
             snippet: { playlistId, resourceId: { kind: "youtube#video", videoId } },
           }),
         });
+        existing.add(videoId);
         added++;
       } catch (e: any) {
         errors.push(`${videoId}: ${e.message?.slice(0, 80)}`);
@@ -59,6 +74,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       playlistId,
       added,
+      alreadyThere,
       url: `https://www.youtube.com/playlist?list=${playlistId}`,
       errors: errors.length ? errors : undefined,
     });

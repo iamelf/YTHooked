@@ -36,15 +36,15 @@ export async function saveProfile(patch: { boosted?: string[]; muted?: string[];
 }
 
 /* ── persisted reactions + watchlist (keyed by feed_items.id uuid) ──────── */
-export async function loadReactionState(): Promise<{ liked: Set<string>; saved: Set<string>; watched: Set<string> }> {
-  const liked = new Set<string>(), saved = new Set<string>(), watched = new Set<string>();
+export async function loadReactionState(): Promise<{ liked: Set<string>; saved: Set<string>; watched: Set<string>; pushed: Set<string> }> {
+  const liked = new Set<string>(), saved = new Set<string>(), watched = new Set<string>(), pushed = new Set<string>();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { liked, saved, watched };
+  if (!user) return { liked, saved, watched, pushed };
   const [{ data: rx }, { data: wl }] = await Promise.all([
     supabase.from("reactions").select("item_id, kind").eq("user_id", user.id),
-    supabase.from("watchlist").select("item_id, status").eq("user_id", user.id),
+    supabase.from("watchlist").select("item_id, status, youtube_pushed").eq("user_id", user.id),
   ]);
   (rx ?? []).forEach((r: any) => { if (r.kind === "up") liked.add(r.item_id); });
-  (wl ?? []).forEach((w: any) => { saved.add(w.item_id); if (w.status === "watched") watched.add(w.item_id); });
-  return { liked, saved, watched };
+  (wl ?? []).forEach((w: any) => { saved.add(w.item_id); if (w.status === "watched") watched.add(w.item_id); if (w.youtube_pushed) pushed.add(w.item_id); });
+  return { liked, saved, watched, pushed };
 }
