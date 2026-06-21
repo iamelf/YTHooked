@@ -3,7 +3,7 @@
     <rect x="522" y="2" width="1359" height="1359" fill="#fff"/>
     <circle cx="1202.29" cy="845.85" r="196.23" fill="#000"/>
   </mask>
-  <path fill="#a891d7" mask="url(#counter)" d="M 918.12 584.02
+  <path fill="#194f5d" mask="url(#counter)" d="M 918.12 584.02
   A 0.40 0.40 0.0 0 0 918.81 584.31
   Q 934.59 567.87 953.60 551.09
   Q 955.60 549.33 967.78 539.78
