@@ -33,7 +33,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import loadenv  # noqa: F401  (auto-loads environment.env: GEMINI_API_KEY etc.)
 
-W, H, FPS = 1080, 1920, 30
+W, H, FPS = 1920, 1080, 30   # landscape 16:9 (matches the app poster + YouTube source)
 FONT_BOLD = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 FONT_REG = "/System/Library/Fonts/Supplemental/Arial.ttf"
 ACCENT = (255, 45, 85)
@@ -94,9 +94,9 @@ def wrap(draw, text, fnt, max_w):
 def narrator_text_png(path, text, kicker="HOOKED", cta=None):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    fnt = font(96, bold=True)
-    lines = wrap(d, text, fnt, W - 160)
-    line_h = 120
+    fnt = font(int(H * 0.078), bold=True)          # ~84 on a 1080-tall frame
+    lines = wrap(d, text, fnt, W - 220)
+    line_h = int(H * 0.10)                          # ~108
     total = len(lines) * line_h
     # nudge the block up a little when there's a CTA so the pill has room
     y = (H - total) // 2 - (110 if cta else 0)
@@ -132,12 +132,12 @@ def narrator_text_png(path, text, kicker="HOOKED", cta=None):
 def caption_strip_png(path, text):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    fnt = font(64, bold=True)
-    lines = wrap(d, text, fnt, W - 140)
-    line_h = 84
-    block_h = len(lines) * line_h + 80
-    y0 = H - 460
-    d.rounded_rectangle([50, y0 - 40, W - 50, y0 + block_h - 40], radius=28,
+    fnt = font(int(H * 0.055), bold=True)           # ~59 on a 1080-tall frame
+    lines = wrap(d, text, fnt, W - 200)
+    line_h = int(H * 0.072)                          # ~78
+    block_h = len(lines) * line_h + 70
+    y0 = H - block_h - 90                             # lower-third, anchored to bottom
+    d.rounded_rectangle([50, y0 - 36, W - 50, y0 + block_h - 36], radius=28,
                         fill=(0, 0, 0, 150))
     y = y0
     for ln in lines:
@@ -162,18 +162,29 @@ DEFAULT_VOICE = {
 }
 
 
-def synth_tts(text, out_base, provider, voice):
-    """Render `text` to an audio file; return the written path (ext varies)."""
+def _atempo(src, speed):
+    """Speed up audio by `speed` (pitch preserved; atempo valid for 0.5–2.0)."""
+    if abs(speed - 1.0) < 1e-3:
+        return src
+    out = src.with_name(src.stem + f"_x{speed:g}.wav")
+    run(["ffmpeg", "-y", "-i", str(src), "-filter:a", f"atempo={speed:.3f}", str(out)])
+    return out
+
+
+def synth_tts(text, out_base, provider, voice, vo_speed=1.0):
+    """Render `text` to an audio file; return the written path (ext varies).
+    `vo_speed` > 1.0 speeds the voice-over up (pitch-preserved) before muxing."""
     voice = voice or DEFAULT_VOICE[provider]
     if provider == "macos":
         out = out_base.with_suffix(".aiff")
         run(["say", "-v", voice, "-o", str(out), text])
-        return out
-    if provider == "elevenlabs":
-        return _elevenlabs(text, out_base.with_suffix(".mp3"), voice)
-    if provider == "gemini":
-        return _gemini_tts(text, out_base.with_suffix(".wav"), voice)
-    raise ValueError(f"unknown tts provider {provider}")
+    elif provider == "elevenlabs":
+        out = _elevenlabs(text, out_base.with_suffix(".mp3"), voice)
+    elif provider == "gemini":
+        out = _gemini_tts(text, out_base.with_suffix(".wav"), voice)
+    else:
+        raise ValueError(f"unknown tts provider {provider}")
+    return _atempo(out, vo_speed)
 
 
 def _elevenlabs(text, out_mp3, voice_id):
@@ -227,9 +238,9 @@ def _gemini_tts(text, out_wav, voice_name):
 
 
 def narrator_local(text_vo, text_overlay, out_mp4, tmp, tag, tts="macos", voice=None,
-                   cta=None, kicker="HOOKED"):
+                   cta=None, kicker="HOOKED", vo_speed=1.0):
     """Motion gradient + voiceover + animated caption -> normalized mp4."""
-    aiff = synth_tts(text_vo, tmp / tag, tts, voice)
+    aiff = synth_tts(text_vo, tmp / tag, tts, voice, vo_speed)
     dur = max(probe_dur(aiff) + 0.6, 2.5)
 
     bg = tmp / f"{tag}_bg.png"
@@ -240,7 +251,7 @@ def narrator_local(text_vo, text_overlay, out_mp4, tmp, tag, tts="macos", voice=
     # slow push-in (zoompan) on the gradient, text fades in, voiceover over it
     total_frames = int(dur * FPS)
     vf = (
-        f"[0:v]scale=1188:2112,zoompan=z='min(zoom+0.0006,1.12)':"
+        f"[0:v]scale={int(W * 1.1)}:{int(H * 1.1)},zoompan=z='min(zoom+0.0006,1.12)':"
         f"d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"s={W}x{H}:fps={FPS}[bg];"
         f"[bg][1:v]overlay=0:0[ov];"
@@ -255,11 +266,11 @@ def narrator_local(text_vo, text_overlay, out_mp4, tmp, tag, tts="macos", voice=
 
 
 def narrator_veo(text_vo, text_overlay, out_mp4, tmp, tag, tts="macos", voice=None,
-                 cta=None, kicker="HOOKED"):
+                 cta=None, kicker="HOOKED", vo_speed=1.0):
     """Veo provider slot. Requires GEMINI_API_KEY + billing; falls back to local."""
     if not os.environ.get("GEMINI_API_KEY"):
         print(f"  [veo] no GEMINI_API_KEY -> falling back to local motion for {tag}")
-        return narrator_local(text_vo, text_overlay, out_mp4, tmp, tag, tts, voice, cta, kicker)
+        return narrator_local(text_vo, text_overlay, out_mp4, tmp, tag, tts, voice, cta, kicker, vo_speed)
     # TODO: call Veo (generate ~8s b-roll from a visual prompt), download mp4,
     # then overlay scripted TTS voiceover + caption and normalize to W x H.
     raise NotImplementedError("Veo wiring pending: verify model id + poll long-running op")
@@ -334,24 +345,37 @@ def _kin_render_punch(text, accent, dur, fdir, bg, cta=None):
         frame.convert("RGB").save(fdir / f"{fi:05d}.png")
 
 
-def _kin_layout(text):
-    f = font(KIN_PHRASE, True)
+def _kin_layout(text, base=None):
+    """Lay out the full phrase, shrinking the font until the block fits the
+    frame (every line within max_w and total height within ~72% of H). Returns
+    (placed, size) where placed = [(token, center_x, center_y), ...]. The
+    shrink-to-fit makes the text robust to long lines and either orientation,
+    so it can never overflow / get clipped the way the old fixed size did."""
+    base = base or int(H * 0.095)        # ~102 on a 1080-tall landscape frame
+    max_w = W - 240
+    max_h = H * 0.72
     probe = ImageDraw.Draw(Image.new("RGB", (W, H)))
-    max_w = W - 120
-    lines = []
-    for rl in text.split("\n"):
-        if rl.strip() == "":
-            lines.append([])
-            continue
-        cur = []
-        for w in rl.split():
-            if not cur or probe.textlength(" ".join(cur + [w]), font=f) <= max_w:
-                cur.append(w)
-            else:
-                lines.append(cur); cur = [w]
-        if cur:
-            lines.append(cur)
-    line_h = KIN_PHRASE * 1.06
+    size = base
+    while True:
+        f = font(size, True)
+        line_h = size * 1.12
+        lines = []
+        for rl in text.split("\n"):
+            if rl.strip() == "":
+                lines.append([]); continue
+            cur = []
+            for w in rl.split():
+                if not cur or probe.textlength(" ".join(cur + [w]), font=f) <= max_w:
+                    cur.append(w)
+                else:
+                    lines.append(cur); cur = [w]
+            if cur:
+                lines.append(cur)
+        too_wide = any(probe.textlength(" ".join(ln), font=f) > max_w for ln in lines if ln)
+        too_tall = len(lines) * line_h > max_h
+        if (not too_wide and not too_tall) or size <= 44:
+            break
+        size = int(size * 0.92)
     y0 = (H - len(lines) * line_h) / 2 + line_h / 2
     space_w = probe.textlength(" ", font=f)
     placed = []
@@ -363,11 +387,11 @@ def _kin_layout(text):
         for w, wd in zip(words, widths):
             placed.append((w, x + wd / 2, cy))
             x += wd + space_w
-    return placed
+    return placed, size
 
 
 def _kin_render_phrase(text, accent, dur, fdir, bg, cta=None):
-    placed = _kin_layout(text)
+    placed, base = _kin_layout(text)
     n = max(len(placed), 1)
     head, tail, pop_win = 0.2, 0.4, 0.35
     slice_ = max(dur - head - tail, 0.6) / n
@@ -388,7 +412,7 @@ def _kin_render_phrase(text, accent, dur, fdir, bg, cta=None):
                 alpha = min(age / 0.12, 1.0)
             else:
                 scale, alpha = 1.0, 1.0
-            size = max(int(KIN_PHRASE * scale), 8)
+            size = max(int(base * scale), 8)
             d.text((cx, cy), tok, font=font(size, True), fill=(*color, int(255 * alpha)),
                    anchor="mm", stroke_width=max(size // 22, 3), stroke_fill=(0, 0, 0, int(255 * alpha)))
         frame = Image.alpha_composite(bg.copy(), layer)
@@ -397,9 +421,36 @@ def _kin_render_phrase(text, accent, dur, fdir, bg, cta=None):
         frame.convert("RGB").save(fdir / f"{fi:05d}.png")
 
 
+def _kin_render_static(text, accent, dur, fdir, bg, cta=None):
+    """All-at-once, no animation: the whole phrase is on screen the entire time
+    at full brightness, after one quick block fade-in. Accent tokens (numbers /
+    acronyms) keep the accent color; everything else is white. No per-word
+    motion or highlight."""
+    placed, size = _kin_layout(text)
+    fade_in = 0.3                                   # whole block eases in once
+    stroke = max(size // 22, 3)
+    for fi in range(int(dur * FPS)):
+        t = fi / FPS
+        a = int(255 * min(t / fade_in, 1.0))
+        layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer)
+        for tok, cx, cy in placed:
+            color = ACCENT if _kin_is_accent(tok, accent) else (255, 255, 255)
+            d.text((cx, cy), tok, font=font(size, True), fill=(*color, a),
+                   anchor="mm", stroke_width=stroke, stroke_fill=(0, 0, 0, a))
+        frame = Image.alpha_composite(bg.copy(), layer)
+        if cta:
+            frame = _kin_draw_cta(frame, cta)
+        frame.convert("RGB").save(fdir / f"{fi:05d}.png")
+
+
+_KIN_RENDERERS = {"phrase": _kin_render_phrase, "punch": _kin_render_punch,
+                  "static": _kin_render_static}
+
+
 def narrator_kinetic(text_vo, text_overlay, out_mp4, tmp, tag, tts="macos", voice=None,
-                     cta=None, mode="punch", accent=()):
-    audio = synth_tts(text_vo, tmp / tag, tts, voice)
+                     cta=None, mode="punch", accent=(), vo_speed=1.0):
+    audio = synth_tts(text_vo, tmp / tag, tts, voice, vo_speed)
     dur = max(probe_dur(audio) + 0.4, 2.0)
     bgp = tmp / f"{tag}_bg.png"
     gradient_bg(bgp)
@@ -407,7 +458,7 @@ def narrator_kinetic(text_vo, text_overlay, out_mp4, tmp, tag, tts="macos", voic
     fdir = tmp / f"kf_{tag}"
     fdir.mkdir(exist_ok=True)
     acc = {a.lower() for a in accent}
-    (_kin_render_phrase if mode == "phrase" else _kin_render_punch)(text_overlay, acc, dur, fdir, bg, cta)
+    _KIN_RENDERERS.get(mode, _kin_render_punch)(text_overlay, acc, dur, fdir, bg, cta)
     run(["ffmpeg", "-y", "-framerate", str(FPS), "-i", str(fdir / "%05d.png"), "-i", str(audio),
          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), "-c:a", "aac",
          "-ar", "44100", "-ac", "2", "-t", f"{dur:.3f}", str(out_mp4)])
@@ -465,8 +516,11 @@ def main():
     ap.add_argument("--tts", choices=["macos", "elevenlabs", "gemini"], default="macos",
                     help="voiceover provider (elevenlabs/gemini need API keys in env)")
     ap.add_argument("--voice", default=None, help="voice name/id override for the chosen --tts")
-    ap.add_argument("--kinetic", choices=["none", "punch", "phrase"], default="none",
-                    help="kinetic-typography narrator cards (punch=one word at a time, phrase=build-up)")
+    ap.add_argument("--kinetic", choices=["none", "punch", "phrase", "static"], default="none",
+                    help="narrator cards: punch=one word at a time, phrase=build-up, "
+                         "static=whole phrase at once with a karaoke highlight swept to the VO")
+    ap.add_argument("--vo-speed", type=float, default=1.0,
+                    help="speed up the voice-over (pitch preserved), e.g. 1.15 for ~15%% faster")
     ap.add_argument("--quality", type=int, default=720, help="max source height")
     ap.add_argument("-o", "--outdir", type=Path, default=Path("out/shorts"))
     ap.add_argument("--keep-temp", action="store_true")
@@ -502,9 +556,11 @@ def main():
     def NARR(vo, text, out, tag, cta=None, kicker="HOOKED"):
         if args.kinetic != "none":
             narrator_kinetic(vo, text, out, tmp, tag, args.tts, args.voice,
-                             cta=cta, mode=args.kinetic, accent=accent_words)
+                             cta=cta, mode=args.kinetic, accent=accent_words,
+                             vo_speed=args.vo_speed)
         else:
-            narrator(vo, text, out, tmp, tag, args.tts, args.voice, cta=cta, kicker=kicker)
+            narrator(vo, text, out, tmp, tag, args.tts, args.voice, cta=cta,
+                     kicker=kicker, vo_speed=args.vo_speed)
 
     try:
         pieces = []

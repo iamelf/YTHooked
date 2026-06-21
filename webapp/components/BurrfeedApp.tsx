@@ -66,7 +66,7 @@ export default function BurrfeedApp() {
   const [tab, setTab] = useState<Tab>("feed");
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [muted, setMuted] = useState(true);            // browsers require muted to autoplay
-  const [speed, setSpeed] = useState(1.25);            // default a touch faster than 1× for experts
+  const [speed, setSpeed] = useState(1.0);             // teasers now ship with a faster baked VO, so default 1×
   const soundPref = useRef(false);                     // has the user opted into sound before?
   const [user, setUser] = useState<any>(null);
   const [providerToken, setProviderToken] = useState<string | null>(null);
@@ -331,7 +331,7 @@ export default function BurrfeedApp() {
   // restore saved speed + sound preference; once the user has opted into sound, auto-unmute on their first tap each load
   useEffect(() => {
     try {
-      const s = parseFloat(localStorage.getItem("bf_speed") || "");
+      const s = parseFloat(localStorage.getItem("bf_speed2") || "");
       if (s >= 0.5 && s <= 3) setSpeed(s);
       if (localStorage.getItem("bf_sound") === "on") soundPref.current = true;
     } catch {}
@@ -341,7 +341,7 @@ export default function BurrfeedApp() {
   }, []);
 
   const SPEEDS = [1, 1.25, 1.5, 2];
-  const cycleSpeed = () => setSpeed((s) => { const next = SPEEDS[(SPEEDS.indexOf(s) + 1) % SPEEDS.length]; try { localStorage.setItem("bf_speed", String(next)); } catch {} return next; });
+  const cycleSpeed = () => setSpeed((s) => { const next = SPEEDS[(SPEEDS.indexOf(s) + 1) % SPEEDS.length]; try { localStorage.setItem("bf_speed2", String(next)); } catch {} return next; });
   const toggleSound = () => setMuted((m) => { const nm = !m; soundPref.current = !nm; try { localStorage.setItem("bf_sound", nm ? "off" : "on"); } catch {} return nm; });
 
   const tapVideo = (id: string) => {
